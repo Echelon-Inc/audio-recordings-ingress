@@ -176,6 +176,8 @@ st.markdown('[Notion](https://www.notion.so/Pulse-4799295f90594380b55f75e0d78dbb
 if st.button('Reset App'):
     st.query_params.clear()  # Simulate a reset by clearing query parameters
 
+import os
+
 if st.button('Transcribe Audio Files'):
     st.write("Transcription started...")
 
@@ -185,50 +187,52 @@ if st.button('Transcribe Audio Files'):
         count = 0
         for file in audio_files:
             file_id = file['id']
-            file_name = file['name']
+            file_name = file['name']  # Original file name
             mime_type = file['mimeType']
             count += 1
 
-            # Step 2: Download the file
-            local_audio_path = download_file(file_id, file_name)
+            # Step 2: Download the original file (before any conversion)
+            original_audio_path = download_file(file_id, file_name)
             st.write(f"Downloaded file: {file_name} with MIME type: {mime_type}")
+
+            final_audio_path = original_audio_path  # Initially set to the original file
+            final_file_name = file_name  # Keep track of the final file name for the document title
 
             # Step 3: Check if it's an .mpg file and convert it to .mp3
             if 'video' in mime_type:
-                file_name = generate_transcribed_filename()
-                mp3_file_path = convert_mpg_to_mp3(local_audio_path, file_name)
+                converted_file_name = generate_transcribed_filename()  # Generate a name for the converted file
+                converted_mp3_path = convert_mpg_to_mp3(original_audio_path, converted_file_name)
 
-                if mp3_file_path:
-                    local_audio_path = mp3_file_path
+                if converted_mp3_path:
+                    final_audio_path = converted_mp3_path  # Now use the converted file for further processing
+                    final_file_name = converted_file_name  # Update the final file name for the document title
                     st.write(f"Converted {file_name} to .mp3 format for transcription.")
-            else:
-                # If it's already an .mp3, use it directly
-                st.write(f"Processing .mp3 file: {file_name}")
 
-            # Step 4: Upload the .mp3 file to Google Drive
-            mp3_file_id = upload_file_to_drive(local_audio_path, transcribed_audio_folder_id)
+            # Step 4: Transcribe the audio
+            transcription_text = transcribe(final_audio_path)
+            st.write(f"Transcription for {final_file_name}: {transcription_text}")
+
+            # Step 5: Upload the .mp3 file (converted or original) to Google Drive
+            mp3_file_id = upload_file_to_drive(final_audio_path, transcribed_audio_folder_id)
             st.write(f".mp3 file uploaded to Google Drive with ID: {mp3_file_id}")
 
-            # Step 5: Move the original file to trash folder
+            # Step 6: Move the original file to trash folder
             move_file_to_trash(file_id, trash_folder_id)
             st.write(f"Moved {file_name} to trash folder.")
 
-            # Step 6: Transcribe the audio
-            transcription_text = transcribe(local_audio_path)
-            st.write(f"Transcription for {file_name}: {transcription_text}")
-
-            # Step 6.1: Add date and "Who Recorded This Audio?" before the transcription
+            # Step 7: Add date and "Who Recorded This Audio?" before the transcription
             timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
             date_transcribed = f"Date Transcribed: {timestamp}"
             who_recorded = "Who Recorded This Audio? Kerri Faber / Erik Allen / David McColl / Joel Moxley / Christian Bader"
 
-            final_transcription_text = f"{date_transcribed}\n\n{who_recorded}\n\n{transcription_text}"
+            final_transcription_text = f"{date_transcribed}\n\n{who_recorded}\n\n{transcription_text}\n\n"
 
-            # Step 7: Get the shareable link for the mp3 file
+            # Step 8: Get the shareable link for the mp3 file
             shareable_link = get_shareable_link(mp3_file_id)
 
-            # Step 8: Create a Google Doc for the transcription
-            doc_title = f"{file_name}_INITIALS_TRANSCRIPTION_FOR REVIEW"
+            # Step 9: Create a Google Doc for the transcription
+            # Use the final file name (either original or converted) for the document title
+            doc_title = f"{final_file_name}_INITIALS_TRANSCRIPTION_FOR REVIEW"
             doc_body = {'title': doc_title}
             doc = docs_service.documents().create(body=doc_body).execute()
             document_id = doc.get('documentId')
@@ -242,7 +246,6 @@ if st.button('Transcribe Audio Files'):
                     }
                 }
             ]
-            
             docs_service.documents().batchUpdate(documentId=document_id, body={'requests': requests}).execute()
 
             # After inserting text, calculate the index for hyperlink insertion
@@ -276,18 +279,25 @@ if st.button('Transcribe Audio Files'):
             docs_service.documents().batchUpdate(documentId=document_id, body={'requests': requests}).execute()
             st.write(f"Google Doc created with destination: https://docs.google.com/document/d/{document_id}")
 
-            # Step 9: Move the Google Doc to the transcribed text folder
+            # Step 10: Move the Google Doc to the transcribed text folder
             move_file_to_folder(document_id, transcribed_text_folder_id)
 
-            # Clean up local file
-            os.remove(local_audio_path)
+            # Step 11: Clean up the local files after all processing
+            # Delete the original .mpg file if it exists
+            if 'video' in mime_type and os.path.exists(original_audio_path):
+                os.remove(original_audio_path)
+                st.write(f"Deleted original .mpg file: {original_audio_path}")
 
-        st.success(f"{count} transcription(s) complete! Find files in the folder linked below.")
-        st.markdown('[Transcriptions Folder](https://drive.google.com/drive/u/0/folders/1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C)')
+            # Delete the converted .mp3 file after uploading and transcription
+            if os.path.exists(final_audio_path):
+                os.remove(final_audio_path)
+                st.write(f"Deleted local .mp3 file: {final_audio_path}")
 
     except Exception as e:
         st.error(f"Error during transcription: {str(e)}")
 
+    st.success(f"{count} transcription(s) complete! Find files in the folder linked below.")
+    st.markdown('[Transcriptions Folder](https://drive.google.com/drive/u/0/folders/1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C)')
 
 # def main():
 #     # Step 1: List all .mp3 and .mpg files in the unprocessed audio folder
