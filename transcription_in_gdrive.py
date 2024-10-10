@@ -167,6 +167,7 @@ def get_shareable_link(file_id):
         return None
 
 # Streamlit UI
+st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width = 250, use_column_width=auto)
 st.title("NOS Daily Digest Transcription App - Custom Built for Kerri Faber")
 st.write("Once you have uploaded your files to the folder linked below, click the 'Transcribe Audio Files' button to transcribe. Full instructions are available on Notion.")
 st.markdown('[Upload Folder](https://drive.google.com/drive/folders/10asUMD9jFbWlIXsTxqSezPdJkJU8czdm?usp=drive_link)')
@@ -298,61 +299,3 @@ if st.button('Transcribe Audio Files'):
 
     st.success(f"{count} transcription(s) complete! Find files in the folder linked below.")
     st.markdown('[Transcriptions Folder](https://drive.google.com/drive/u/0/folders/1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C)')
-
-# def main():
-#     # Step 1: List all .mp3 and .mpg files in the unprocessed audio folder
-#     audio_files = list_audio_files(unprocessed_audio_folder_id)
-    
-#     for file in audio_files:
-#         file_id = file['id']
-#         file_name = file['name']
-#         mime_type = file['mimeType']
-        
-#         # Step 2: Download the file
-#         local_audio_path = download_file(file_id, file_name)
-        
-#         # Step 3: Check if it's an .mpg file and convert it to .mp3
-#         if 'video' in mime_type:  # Checks for video file types
-#             file_name = generate_transcribed_filename()  # New file name
-#             mp3_file_path = convert_mpg_to_mp3(local_audio_path, file_name)
-            
-#             if mp3_file_path:
-#                 local_audio_path = mp3_file_path  # Update path for further processing
-                
-#                 # Step 4: Upload the converted .mp3 file to Google Drive
-#                 mp3_file_id = upload_file_to_drive(mp3_file_path, transcribed_audio_folder_id)
-                
-#                 # Step 5: Move the original .mpg file to trash folder instead of deleting
-#                 move_file_to_trash(file_id, trash_folder_id)
-#         else:
-#             # If already an mp3, just upload and get the ID
-#             mp3_file_id = upload_file_to_drive(local_audio_path, transcribed_audio_folder_id)
-        
-#         print(f"Processing file: {file_name}")
-        
-#         # Step 6: Transcribe the audio
-#         transcription_text = transcribe(local_audio_path)
-#         print(f"{file_name}: {transcription_text}")
-        
-#         # Step 7: Get the shareable link for the mp3 file
-#         shareable_link = get_shareable_link(mp3_file_id)
-        
-#         # Step 8: Append the link to the transcription text
-#         transcription_text_with_link = f"{transcription_text}\n\nMP3 File: {shareable_link}"
-        
-#         # Step 9: Create a Google Doc for the transcription
-#         doc_title = f"{file_name} [Initials] [Transcription] [For Review]"
-#         doc_id = create_google_doc(docs_service, doc_title, transcription_text_with_link)
-#         print(f"Google Doc created with ID: {doc_id}")
-        
-#         # Step 10: Move the Google Doc to the transcribed text folder
-#         move_file_to_folder(doc_id, transcribed_text_folder_id)
-        
-#         # Clean up local file
-#         os.remove(local_audio_path)
-
-# # This condition checks if the script is being executed directly (not imported as a module).
-# # If it evaluates to True, the block of code under it will be executed.
-# # If the script is being imported, the block of code will not be executed.
-# if __name__ == '__main__':
-#     main()
