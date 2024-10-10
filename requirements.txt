@@ -1,0 +1,11 @@
+google-auth 
+google-auth-oauthlib 
+google-auth-httplib2 
+google-api-python-client
+google-cloud-speech
+openai requests
+google-api-python-client
+flask
+ffmpeg-python
+streamlit
+python-dotenv
