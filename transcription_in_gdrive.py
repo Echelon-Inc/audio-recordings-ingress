@@ -167,7 +167,7 @@ def get_shareable_link(file_id):
         return None
 
 # Streamlit UI
-st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width = 250, use_column_width=auto)
+st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width = 250)
 st.title("NOS Daily Digest Transcription App - Custom Built for Kerri Faber")
 st.write("Once you have uploaded your files to the folder linked below, click the 'Transcribe Audio Files' button to transcribe. Full instructions are available on Notion.")
 st.markdown('[Upload Folder](https://drive.google.com/drive/folders/10asUMD9jFbWlIXsTxqSezPdJkJU8czdm?usp=drive_link)')
