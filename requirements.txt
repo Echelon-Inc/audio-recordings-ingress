@@ -13,3 +13,5 @@ python-dotenv
 re
 json
 docx
+pydub
+python-docx
