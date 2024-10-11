@@ -10,3 +10,6 @@ flask
 ffmpeg-python
 streamlit
 python-dotenv
+re
+json
+docx
