@@ -15,9 +15,9 @@ import ffmpeg #had to brew install
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 # Load environment variables from the .env file
-#load_dotenv()
-#OpenAI.api_key = os.getenv("OPENAI_API_KEY")
-OpenAI.api_key = st.secrets["OPENAI_API_KEY"]
+load_dotenv()
+OpenAI.api_key = os.getenv("OPENAI_API_KEY")
+# OpenAI.api_key = st.secrets["OPENAI_API_KEY"]
 
 # Define scopes and load credentials
 SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents']
@@ -192,6 +192,10 @@ def upload_file_to_drive(file_path, folder_id, mime_type):
     return uploaded_file.get('id')
 
 # Streamlit UI
+st.set_page_config(
+        page_title="NOS Speech2Text",
+        page_icon="Echelon_Icon_Sky Blue.png",
+)
 st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width = 125)
 st.title("NOS Daily Digest Transcription App - Custom Built for Kerri Faber")
 st.write("Once you have uploaded your files to the folder linked below, click the 'Transcribe Audio Files' button to transcribe. Full instructions are available on Notion.")
