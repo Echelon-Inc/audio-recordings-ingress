@@ -14,14 +14,13 @@ import re
 import ffmpeg #had to brew install
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
-# Load environment variables from the .env file
-# load_dotenv()
-# OpenAI.api_key = os.getenv("OPENAI_API_KEY")
-OpenAI.api_key = st.secrets["OPENAI_API_KEY"]
-
 # Define scopes and load credentials
+OpenAI.api_key = st.secrets["openai_api_key"]
 SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents']
-creds = service_account.Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
+creds = service_account.Credentials.from_service_account_info(
+    st.secrets["gcp_service_account"],
+    scopes=SCOPES
+)
 
 # Initialize the Drive API client
 drive_service = build('drive', 'v3', credentials=creds)
