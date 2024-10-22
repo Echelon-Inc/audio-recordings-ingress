@@ -2,7 +2,7 @@
 import streamlit as st
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from openai import OpenAI
+import openai
 from dotenv import load_dotenv
 from datetime import datetime
 from docx import Document
@@ -15,7 +15,7 @@ import ffmpeg #had to brew install
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 # Define scopes and load credentials
-OpenAI.api_key = st.secrets["openai_api_key"]
+openai.api_key = st.secrets["openai_api_key"]
 SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents']
 creds = service_account.Credentials.from_service_account_info(
     st.secrets["gcp_service_account"],
@@ -25,7 +25,6 @@ creds = service_account.Credentials.from_service_account_info(
 # Initialize the Drive API client
 drive_service = build('drive', 'v3', credentials=creds)
 docs_service = build('docs', 'v1', credentials=creds)
-client = OpenAI()
 
 # Define folder IDs
 unprocessed_audio_gd_folder_id = '10asUMD9jFbWlIXsTxqSezPdJkJU8czdm'
@@ -111,7 +110,7 @@ def upload_file_to_drive(file_path, folder_id, mime_type='audio/mpeg'):
 # Transcribe audio using OpenAI Whisper
 def transcribe(audio_file_path):
     with open(audio_file_path, 'rb') as audio_file:
-        transcription = client.audio.transcriptions.create(
+        transcription = openai.audio.transcriptions.create(
             model="whisper-1", 
             file=audio_file,
         )
@@ -263,7 +262,7 @@ if st.button('Transcribe Audio Files'):
            
             try:
                 # Send the raw transcription to GPT-4 for formatting
-                completion = client.chat.completions.create(
+                completion = openai.chat.completions.create(
                     model="gpt-4o",
                     messages=[
                         {"role": "system", "content": prompt},
