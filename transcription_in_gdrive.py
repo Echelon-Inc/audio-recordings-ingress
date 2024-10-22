@@ -15,9 +15,9 @@ import ffmpeg #had to brew install
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 # Load environment variables from the .env file
-load_dotenv()
-OpenAI.api_key = os.getenv("OPENAI_API_KEY")
-# OpenAI.api_key = st.secrets["OPENAI_API_KEY"]
+# load_dotenv()
+# OpenAI.api_key = os.getenv("OPENAI_API_KEY")
+OpenAI.api_key = st.secrets["OPENAI_API_KEY"]
 
 # Define scopes and load credentials
 SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents']
