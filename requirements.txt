@@ -10,7 +10,7 @@ flask
 ffmpeg-python
 streamlit
 python-dotenv
-docx
+python-docx
 pydub
 spacy
 fuzzywuzzy
