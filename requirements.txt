@@ -16,5 +16,4 @@ typing
 numpy
 pandas
 jupyter
-shutil
 moviepy
