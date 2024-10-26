@@ -1,100 +1,204 @@
-#Open AI API Key is pulling from terminal command: export OPENAI_API_KEY = 'apikey'
-import streamlit as st
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from openai import OpenAI
-from dotenv import load_dotenv
-from datetime import datetime
-from docx import Document
-from pydub import AudioSegment
+"""
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Audio Transcription Pipeline for Echelon NOS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Authors: Christian Bader
+October 2024 - Present
+
+This script iterates through audio/video files in a Google Drive folder and transcribes them. 
+Audio files are saved as .mp3 files in a new folder, Transcripts are saved as .docx in a new folder.
+
+"""
+
+# Echelon imports
+# e.g. from utilities import function
+
+# Open source imports
 import os
 import io
 import json
-import re
-import ffmpeg #had to brew install
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+import shutil
+from datetime import datetime
 
-# Define scopes and load credentials
+import streamlit as st
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from docx import Document
+from pydub import AudioSegment
+from moviepy.editor import VideoFileClip
+from openai import OpenAI
+
+# Define OpenAI scopes/credentials, initialize client
 OpenAI.api_key = st.secrets["openai_api_key"]
+client = OpenAI()
+
+# Define Google scopes/credentials, initialize client
 SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents']
 creds = service_account.Credentials.from_service_account_info(
     st.secrets["gcp_service_account"],
     scopes=SCOPES
 )
-
-# Initialize the Drive API client
 drive_service = build('drive', 'v3', credentials=creds)
 docs_service = build('docs', 'v1', credentials=creds)
-client = OpenAI()
 
-# Define folder IDs
-unprocessed_audio_gd_folder_id = '10asUMD9jFbWlIXsTxqSezPdJkJU8czdm'
-transcribed_audio_gd_folder_id = '1KfdDf2LR7abUn-TpG9MrjYv3fhGXHmox'
-transcribed_text_gd_folder_id = '1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C'
-trash_gd_folder_id = '1TZzr1cxQGxohvFRR63kip7PxMCWExwTR'
+# Define Google Drive folder IDs
+UNPROCESSED_AUDIO_GD_FOLDER_ID = '10asUMD9jFbWlIXsTxqSezPdJkJU8czdm'
+TRANSCRIBED_AUDIO_GD_FOLDER_ID = '1KfdDf2LR7abUn-TpG9MrjYv3fhGXHmox'
+TRANSCRIBED_TEXT_GD_FOLDER_ID = '1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C'
+ARCHIVE_GD_FOLDER_ID = '1TZzr1cxQGxohvFRR63kip7PxMCWExwTR'
 
-def convert_to_mp3(input_file, output_file):
-    audio = AudioSegment.from_file(input_file)
-    audio.export(output_file, format="mp3")
+# Define functions that interact with local repo
 
-# Function to list .mp3 or .mpg files in a folder
-def list_audio_files(folder_id):
+def convert_to_mp3(input_file, mime_type):
+    """
+    Converts any audio or video file to MP3 format using MIME type for identification.
+
+    Parameters:
+        input_file (str): The path to the input audio or video file.
+        mime_type (str): The MIME type of the input file.
+
+    Returns:
+        str: The path to the converted .mp3 file.
+
+    Raises:
+        Exception: If there is an error during the conversion process.
+    """
+    import os
+    import shutil
+
+    # Determine the output file path by replacing the extension with .mp3
+    base, _ = os.path.splitext(input_file)
+    output_file = base + '.mp3'
+
+    try:
+        print(f"Processing file {input_file} with MIME type {mime_type}")
+
+        if mime_type == 'audio/mpeg':
+            # If the file is already an MP3
+            if os.path.abspath(input_file) != os.path.abspath(output_file):
+                # Copy the file to the output path if it's not the same file
+                shutil.copy(input_file, output_file)
+            else:
+                # Input and output files are the same; no action needed
+                pass
+        elif mime_type.startswith('video/') or mime_type.startswith('audio/'):
+            # Use FFmpeg to extract audio from video or convert audio to MP3
+            extract_audio_with_ffmpeg(input_file, output_file)
+        else:
+            # Unsupported file type
+            print(f"Unsupported file type: {mime_type}")
+            return None
+    except Exception as e:
+        print(f"Error converting file {input_file}: {e}")
+        raise
+
+    # Return the output file path
+    return output_file
+
+
+def extract_audio_with_ffmpeg(input_file, output_file):
+    """
+    Extracts audio from a video file or converts an audio file to MP3 using FFmpeg.
+
+    Parameters:
+        input_file (str): The path to the input file.
+        output_file (str): The path to save the output MP3 file.
+
+    Raises:
+        subprocess.CalledProcessError: If the FFmpeg command fails.
+    """
+    import subprocess
+
+    # Construct the FFmpeg command to extract audio and convert to MP3
+    command = [
+        'ffmpeg',
+        '-i', input_file,
+        '-vn',                 # Disable video recording (process audio only)
+        '-acodec', 'libmp3lame',  # Use the MP3 audio codec
+        '-q:a', '2',              # Set audio quality (2 is high quality)
+        output_file
+    ]
+
+    try:
+        # Run the FFmpeg command
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg failed with error: {e}")
+        raise
+
+
+def rename_file(input_file_path, new_file_name):
+    """
+    Renames a file to a new name in the same directory.
+
+    Parameters:
+        input_file_path (str): The full path to the original file.
+        new_file_name (str): The new file name (with extension).
+
+    Returns:
+        str: The full path to the renamed file.
+    """
+    dir_name = os.path.dirname(input_file_path)
+    new_file_path = os.path.join(dir_name, new_file_name)
+    os.rename(input_file_path, new_file_path)
+
+    return new_file_path
+
+
+# Define functions that interact with Google Docs + Drive
+
+def gd_list_audio_video_files(folder_id):
+    """
+    Lists all audio and video files in a Google Drive folder.
+
+    Parameters:
+        folder_id (str): The ID of the Google Drive folder.
+
+    Returns:
+        list: A list of files with their 'id', 'name', and 'mimeType'.
+    """
     query = f"'{folder_id}' in parents and (mimeType contains 'audio/' or mimeType contains 'video/')"
     results = drive_service.files().list(q=query, fields="files(id, name, mimeType)").execute()
     files = results.get('files', [])
-    # Debugging: Print the file types found
-    for file in files:
-        print(f"Found file: {file['name']} with MIME type: {file['mimeType']}")
     return files
 
-# Function to move the file to another folder (trash folder)
-def move_file_to_trash(file_id, trash_folder_id):
-    try:
-        # Retrieve the existing parents (folders) of the file
-        file = drive_service.files().get(fileId=file_id, fields='parents').execute()
-        previous_parents = ",".join(file.get('parents'))
 
-        # Debugging: Print file ID and parent folder info
-        print(f"Moving file {file_id} from parents {previous_parents} to trash folder {trash_folder_id}")
+def gd_download_file(file_id, file_name):
+    """
+    Downloads a file from Google Drive.
 
-        # Attempt to move the file to the trash folder
-        updated_file = drive_service.files().update(
-            fileId=file_id,
-            addParents=trash_folder_id,
-            removeParents=previous_parents,
-            fields='id, parents'
-        ).execute()
+    Parameters:
+        file_id (str): The ID of the file to download.
+        file_name (str): The name to save the file as locally.
 
-        print(f"File ID {file_id} moved to trash folder ID {trash_folder_id}")
-    except Exception as e:
-        print(f"Error moving file {file_id}: {str(e)}")
-        raise  # Re-raise the exception for further debugging
-
-# Function to convert .mpg to .mp3 using ffmpeg
-def convert_mpg_to_mp3(mpg_file_path, mp3_file_path):
-    try:
-        # Debugging: Print conversion details
-        print(f"Converting {mpg_file_path} to {mp3_file_path}")
-        ffmpeg.input(mpg_file_path).output(mp3_file_path).run()
-        print(f"Converted {mpg_file_path} to {mp3_file_path}")
-        return mp3_file_path
-    except ffmpeg.Error as e:
-        print(f"Error converting file: {e}")
-        return None
-
-# Function to download a file from Google Drive
-def download_file(file_id, file_name):
+    Returns:
+        str: The local path to the downloaded file.
+    """
     request = drive_service.files().get_media(fileId=file_id)
     fh = io.FileIO(file_name, 'wb')
     downloader = MediaIoBaseDownload(fh, request)
     done = False
-    while done is False:
+    while not done:
         status, done = downloader.next_chunk()
         print(f"Download {file_name}: {int(status.progress() * 100)}%.")
     return file_name
 
-# Function to upload a file to Google Drive
-def upload_file_to_drive(file_path, folder_id, mime_type='audio/mpeg'):
+
+def gd_upload_file(file_path, folder_id, mime_type):
+    """
+    Uploads a file to a specified Google Drive folder.
+
+    Parameters:
+        file_path (str): The local path to the file to upload.
+        folder_id (str): The ID of the destination Google Drive folder.
+        mime_type (str): The MIME type of the file.
+
+    Returns:
+        str: The ID of the uploaded file in Google Drive.
+    """
     file_metadata = {
         'name': os.path.basename(file_path),
         'parents': [folder_id]
@@ -108,34 +212,25 @@ def upload_file_to_drive(file_path, folder_id, mime_type='audio/mpeg'):
     print(f"Uploaded file {file_path} to Google Drive with ID: {uploaded_file.get('id')}")
     return uploaded_file.get('id')
 
-# Transcribe audio using OpenAI Whisper
-def transcribe(audio_file_path):
-    with open(audio_file_path, 'rb') as audio_file:
-        transcription = client.audio.transcriptions.create(
-            model="whisper-1", 
-            file=audio_file,
-        )
-    return transcription.text
 
-def convert_m4a_to_mp3(m4a_file_path, mp3_file_path):
-    try:
-        print(f"Converting {m4a_file_path} to {mp3_file_path}")
-        ffmpeg.input(m4a_file_path).output(mp3_file_path).run()
-        print(f"Converted {m4a_file_path} to {mp3_file_path}")
-        return mp3_file_path
-    except ffmpeg.Error as e:
-        print(f"Error converting .m4a file: {str(e)}")
-        return None
+def gd_move_file_between_folders(file_id, target_folder_id):
+    """
+    Moves a file to a different Google Drive folder.
 
-# Move file to a different Google Drive folder
-def move_file_to_folder(file_id, target_folder_id):
+    Parameters:
+        file_id (str): The ID of the file to move.
+        target_folder_id (str): The ID of the destination folder.
+
+    Returns:
+        None
+    """
     try:
         # Retrieve the existing parents to remove
         file = drive_service.files().get(fileId=file_id, fields='parents').execute()
         previous_parents = ",".join(file.get('parents'))
 
         # Move the file to the new folder
-        updated_file = drive_service.files().update(
+        drive_service.files().update(
             fileId=file_id,
             addParents=target_folder_id,
             removeParents=previous_parents,
@@ -146,16 +241,25 @@ def move_file_to_folder(file_id, target_folder_id):
     except Exception as e:
         print(f"Error moving file {file_id}: {str(e)}")
 
-# Function to create a shareable link for a file
-def get_shareable_link(file_id):
+
+def gd_get_shareable_link(file_id):
+    """
+    Creates a shareable link for a Google Drive file.
+
+    Parameters:
+        file_id (str): The ID of the file.
+
+    Returns:
+        str: The shareable link to the file.
+    """
     try:
-        # Update file permissions to make it shareable (optional: adjust to 'anyoneWithLink' for broader access)
+        # Update file permissions to make it shareable
         permission = {
             'type': 'anyone',
             'role': 'reader'
         }
         drive_service.permissions().create(fileId=file_id, body=permission).execute()
-        
+
         # Get the shareable link
         file = drive_service.files().get(fileId=file_id, fields='webViewLink').execute()
         return file.get('webViewLink')
@@ -163,32 +267,55 @@ def get_shareable_link(file_id):
         print(f"Error getting shareable link for file {file_id}: {str(e)}")
         return None
 
-#Save Medatada as JSON
-def save_metadata_as_json(metadata, json_file_path):
+
+# Define functions that leverage OpenAI API
+
+def transcribe(audio_file_path):
     """
-    Save the given metadata dictionary as a .json file.
+    Transcribes an audio file to text using OpenAI Whisper.
+
+    Parameters:
+        audio_file_path (str): The local path to the audio file.
+
+    Returns:
+        str: The transcribed text.
+    """
+    with open(audio_file_path, 'rb') as audio_file:
+        transcription = client.audio.transcriptions.create(
+            model="whisper-1", 
+            file=audio_file,
+        )
+    return transcription.text
+
+
+def openai_llm_call(system_prompt, user_prompt, client):
+    """
+    Formats the transcription using the GPT-4 API.
+
+    Parameters:
+        system_prompt (str): The system prompt to guide the model's behavior.
+        user_prompt (str): The user's message content, typically the raw transcription.
+        client: The OpenAI API client instance.
+
+    Returns:
+        str: The formatted transcription returned by the GPT model.
     """
     try:
-        with open(json_file_path, 'w') as json_file:
-            json.dump(metadata, json_file, indent=4)
-        print(f"Metadata saved to {json_file_path}")
+        # Send the prompts to GPT-4 for formatting
+        completion = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+        # Extract the formatted transcription from the response
+        output = completion.choices[0].message.content if completion.choices[0].message else ""
     except Exception as e:
-        print(f"Error saving metadata to JSON: {str(e)}")
+        # Handle any exceptions that occur during the GPT-4 API call
+        output = "LLM Processing Failed. Use ChatGPT manually."
+    return output
 
-#Upload file to Gdrive
-def upload_file_to_drive(file_path, folder_id, mime_type):
-    file_metadata = {
-        'name': os.path.basename(file_path),
-        'parents': [folder_id]
-    }
-    media = MediaFileUpload(file_path, mimetype=mime_type)
-    uploaded_file = drive_service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields='id'
-    ).execute()
-    print(f"Uploaded file {file_path} to Google Drive with ID: {uploaded_file.get('id')}")
-    return uploaded_file.get('id')
 
 # Streamlit UI
 st.set_page_config(
@@ -209,8 +336,7 @@ if st.button('Transcribe Audio Files'):
     st.write("Transcription started...")
 
     try:
-        # Step 1: List all .mp3 and .mpg files in the unprocessed audio folder
-        audio_files = list_audio_files(unprocessed_audio_gd_folder_id)
+        audio_files = gd_list_audio_video_files(UNPROCESSED_AUDIO_GD_FOLDER_ID)
         count = 0
         file_count = len(audio_files)
         st.write(f"Found {file_count} audio files to transcribe.")
@@ -221,72 +347,47 @@ if st.button('Transcribe Audio Files'):
             input_audio_mime_type = file['mimeType']
             count += 1
             st.write(f"Starting file {count}.")
+            st.write(f"Filename: {input_audio_file_name}")
 
-            # Step 2: Download the original file (before any conversion)
-            input_audio_path = download_file(input_audio_gd_file_id, input_audio_file_name)
+            # Download the original file to local repo (before any conversion)
+            input_audio_path = gd_download_file(input_audio_gd_file_id, input_audio_file_name)
             st.write(f"Downloaded file: {input_audio_file_name} with MIME type: {input_audio_mime_type}")
 
-            # Generate new file name based on timestamp
-            timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+            # Convert the input file to MP3 with the same name. Delete the input file
+            converted_audio_path = convert_to_mp3(input_audio_path, input_audio_mime_type)
+            st.write(f"Converted {input_audio_file_name} to .mp3 format for transcription. Output file: {converted_audio_path}")
+
+            # Generate new file name based on timestamp and rename file
+            timestamp = datetime.now().strftime('%Y-%m-%d-%H%M%S%f') 
             final_audio_file_name = f"SIGNAL_{timestamp}.mp3"
-            final_audio_path = os.path.join(os.path.dirname(input_audio_path), final_audio_file_name)
+            final_audio_path = rename_file(converted_audio_path, final_audio_file_name)
+            st.write(f"Renamed {converted_audio_path} to {final_audio_path}")
 
-            # Step 3: Check if it's an .mpg file and convert it to .mp3 with timestamped name
-            print(f"MIME Type: {input_audio_mime_type} ({type(input_audio_mime_type)})")
-            if 'video' in str(input_audio_mime_type):
-                final_audio_path = convert_mpg_to_mp3(input_audio_path, final_audio_file_name)
-                st.write(f"Converted {input_audio_file_name} to .mp3 format for transcription. Renamed to {final_audio_file_name}")
-            else: 
-                # Step 3: If it's already an .mp3, rename the file. Path is the same
-                convert_to_mp3(input_audio_path, final_audio_path)
-                #os.rename(input_audio_path, final_audio_path)
-                st.write(f"Renamed {input_audio_file_name} to {final_audio_file_name}")
-
-            # Now final_audio_path points to the renamed file (either converted or not)
-
-            # Step 4: Transcribe the audio
-            raw_transcription = transcribe(final_audio_path)
-            st.write(f"Raw transcription for {final_audio_file_name}: {raw_transcription}")
-
-            # Step 5: Upload the .mp3 file (converted or original) to Google Drive
-            mp3_gd_file_id = upload_file_to_drive(final_audio_path, transcribed_audio_gd_folder_id,mime_type='audio/mpeg')
+            # Upload mp3 file to Google Drive
+            mp3_gd_file_id = gd_upload_file(final_audio_path, TRANSCRIBED_AUDIO_GD_FOLDER_ID,mime_type='audio/mpeg')
             st.write(f".mp3 file uploaded to Google Drive with ID: {mp3_gd_file_id}")
 
-            # Step 6: Move the original file to trash folder
-            move_file_to_trash(input_audio_gd_file_id, trash_gd_folder_id)
-            st.write(f"Moved {input_audio_file_name} to trash folder.")
+            # Transcribe the audio
+            raw_transcription = transcribe(final_audio_path)
+            st.write(f"Raw transcription generated for {final_audio_file_name}.")
 
-            # Step 7: Prompt GPT-4 to format the transcription
-            prompt = "Optimize this raw transcription by formatting and cleaning up the text for a reader, while preserving all details. Your perspective should be that of a diligent third party analyzing the transcript presented by your boss, not simply a first-person reformat. It is important you communicate the important components of their message directly."
-            print(f"Raw Transcription Type: {type(raw_transcription)}")
-            print(f"Prompt to GPT-4: {prompt}")
+            # Prompt GPT-4 to format the transcription
+            system_prompt = (
+                "Optimize this raw transcription by formatting and cleaning up the text for a reader. "
+                "It is important that you preserve all details. Write as if you were a diligent third party "
+                "analyzing the transcript presented by your boss, not simply a first-person reformat. "
+                "It is important you communicate the important components of their message directly. "
+                "In parts of the text that seem to not make sense, remember that this is an audio transcript, "
+                "and mark these as (*sp?)"
+            )
+            task_prompt = raw_transcription
+            formatted_transcription = openai_llm_call(system_prompt, task_prompt, client)
            
-            try:
-                # Send the raw transcription to GPT-4 for formatting
-                completion = client.chat.completions.create(
-                    model="gpt-4o",
-                    messages=[
-                        {"role": "system", "content": prompt},
-                        {"role": "user", "content": raw_transcription}
-                    ]
-                )
-                formatted_transcription = completion.choices[0].message.content if completion.choices[0].message else ""
-                print(f"Formatted transcription: {formatted_transcription}")
-            except Exception as e:
-                # Handle any exceptions that occur during the GPT-4 call
-                print(f"Error during GPT-4 API call: {str(e)}")
-                formatted_transcription = "LLM Processing Failed. Use ChatGPT manually"  # Set 'formatted_text' to None or an empty string to avoid undefined variable error
-            
-           # After extracting the formatted transcription content from GPT-4
-            print(f"ft Type: {type(formatted_transcription)}")
+            # After extracting the formatted transcription content from GPT-4
+            st.write(f"Formatted transcription generated for {final_audio_file_name}")
 
-            # Step 8: Prepare the docx
-            mp3_link = get_shareable_link(mp3_gd_file_id)
-
-            # Replace invalid characters in the timestamp for the file name
-            timestamp = datetime.now().strftime('%Y-%m-%d-%H:%M:%S')  # Safe format for file names
-
-            # Prepare the .docx file name
+            # Create the docx
+            mp3_link = gd_get_shareable_link(mp3_gd_file_id)
             doc_file_name = os.path.join(os.getcwd(), f"SIGNAL_{timestamp}_INITIALS_TRANSCRIPTION_FOR REVIEW.docx")
 
             try:
@@ -307,40 +408,31 @@ if st.button('Transcribe Audio Files'):
                 
                 # Save the document
                 doc.save(doc_file_name)
-                print(f"Generated .docx file: {doc_file_name}")
+                st.write(f"Generated .docx file: {doc_file_name}")
             except Exception as e:
-                print(f"Error creating document: {str(e)}")
+                st.write(f"Error creating document: {str(e)}")
 
-            # Check if the file exists before attempting to upload
+            # Upload the docx
             if os.path.exists(doc_file_name):
-                print(f"Document saved successfully at {doc_file_name}")
+                st.write(f"Document saved successfully at {doc_file_name}")
                 
-                # Upload the .docx file to Google Drive
-                doc_id = upload_file_to_drive(doc_file_name, transcribed_text_gd_folder_id, mime_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                doc_id = gd_upload_file(doc_file_name, TRANSCRIBED_TEXT_GD_FOLDER_ID, mime_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
             else:
-                print(f"Document not found at {doc_file_name}. Skipping upload.")
-            #Step 10: Save metadata in a JSON file
-            # metadata = {
-            #     "input_audio_file_name": input_audio_file_name,
-            #     "input_audio_file_id": input_audio_gd_file_id,
-            #     "mp3_file_name": final_audio_file_name,
-            #     "mp3_file_id": mp3_gd_file_id,
-            #     "transcription_text_raw": raw_transcription,
-            #     "transcription_text_formatted": formatted_transcription,
-            #     "time_of_transcription": timestamp,
-            #     "google_doc_id": doc_id,
-            #     "google_doc_link": f"https://docs.google.com/document/d/{doc_id}"
-            # }
-            # json_file_path = f"{final_audio_file_name.replace('.mp3', '')}_metadata.json"
-            # save_metadata_as_json(metadata, json_file_path)
+                st.write(f"Document not found at {doc_file_name}. Skipping upload.")
+
+            # Move the original audio file from the GDrive to archive folder
+            gd_move_file_between_folders(input_audio_gd_file_id, ARCHIVE_GD_FOLDER_ID)
+            st.write(f"Moved {input_audio_file_name} to archive folder.")
             
-            # Step 11: Clean up the local files after all processing
-            # Delete the original .mpg file if it exists
+            # Clean up the local files after all processing
+            #TODO have everything in a temp dir and clear it.
+            #  
+            # Delete the original upload file if it exists
             if os.path.exists(input_audio_path):
                 os.remove(input_audio_path)
-                st.write(f"Deleted original .mpg file: {input_audio_path}")
+                st.write(f"Deleted original upload file: {input_audio_path}")
 
-            # Delete the converted .mp3 file after uploading and transcription
+            # Delete the converted .mp3 file if it exists
             if os.path.exists(final_audio_path):
                 os.remove(final_audio_path)
                 st.write(f"Deleted local .mp3 file: {final_audio_path}")
@@ -348,7 +440,7 @@ if st.button('Transcribe Audio Files'):
             if os.path.exists(doc_file_name):
                 os.remove(doc_file_name)
                 st.write(f"Deleted local .docx file: {doc_file_name}")
-            
+
             st.write(f"File {count} complete.")
     except Exception as e:
         st.error(f"Error during transcription: {str(e)}")
