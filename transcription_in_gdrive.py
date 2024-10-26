@@ -34,7 +34,6 @@ from openai import OpenAI
 
 # Define OpenAI scopes/credentials, initialize client
 os.environ['OPENAI_API_KEY'] = st.secrets["openai_api_key"]
-#OpenAI().api_key = OPENAI_API_KEY #bug
 client = OpenAI()
 
 # Define Google scopes/credentials, initialize client
@@ -410,15 +409,14 @@ if st.button('Transcribe Audio Files'):
                 
                 # Save the document
                 doc.save(doc_file_name)
-                st.write(f"Generated .docx file: {doc_file_name}")
+                st.write(f"Generated .docx Transcript.")
             except Exception as e:
                 st.write(f"Error creating document: {str(e)}")
 
             # Upload the docx
             if os.path.exists(doc_file_name):
-                st.write(f"Document saved successfully at {doc_file_name}")
-                
                 doc_id = gd_upload_file(doc_file_name, TRANSCRIBED_TEXT_GD_FOLDER_ID, mime_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                st.write(f"Transcript .docx uploaded to Google Drive with ID: {doc_id}")
             else:
                 st.write(f"Document not found at {doc_file_name}. Skipping upload.")
 
@@ -443,7 +441,8 @@ if st.button('Transcribe Audio Files'):
                 os.remove(doc_file_name)
                 st.write(f"Deleted local .docx file: {doc_file_name}")
 
-            st.write(f"File {count} complete.")
+            doc_link = gd_get_shareable_link(doc_id)
+            st.write(f"File {count} complete. Transcript Link: {doc_link}")
     except Exception as e:
         st.error(f"Error during transcription: {str(e)}")
 
