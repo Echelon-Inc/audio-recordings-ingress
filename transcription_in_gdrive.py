@@ -15,13 +15,14 @@ Audio files are saved as .mp3 files in a new folder, Transcripts are saved as .d
 # Echelon imports
 # e.g. from utilities import function
 
-# Open source imports
+# Standard python library imports
 import os
 import io
 import json
 import shutil
 from datetime import datetime
 
+# Open source imports
 import streamlit as st
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -32,8 +33,9 @@ from moviepy.editor import VideoFileClip
 from openai import OpenAI
 
 # Define OpenAI scopes/credentials, initialize client
-OpenAI.api_key = st.secrets["openai_api_key"]
 client = OpenAI()
+client.api_key = st.secrets["openai_api_key"]
+
 
 # Define Google scopes/credentials, initialize client
 SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents']
