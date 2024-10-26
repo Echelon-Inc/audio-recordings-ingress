@@ -1,2 +1,3 @@
 .env
 secrets.toml
+email_credentials.json
