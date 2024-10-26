@@ -34,7 +34,7 @@ from openai import OpenAI
 
 # Define OpenAI scopes/credentials, initialize client
 OPENAI_API_KEY = st.secrets["openai_api_key"]
-openai.api_key = OPENAI_API_KEY
+OpenAI.api_key = OPENAI_API_KEY #bug
 client = OpenAI()
 
 # Define Google scopes/credentials, initialize client
