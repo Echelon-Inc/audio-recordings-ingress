@@ -33,9 +33,9 @@ from moviepy.editor import VideoFileClip
 from openai import OpenAI
 
 # Define OpenAI scopes/credentials, initialize client
+OPENAI_API_KEY = st.secrets["openai_api_key"]
+openai.api_key = OPENAI_API_KEY
 client = OpenAI()
-client.api_key = st.secrets["openai_api_key"]
-
 
 # Define Google scopes/credentials, initialize client
 SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents']
