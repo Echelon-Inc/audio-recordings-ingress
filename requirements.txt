@@ -17,4 +17,4 @@ numpy
 pandas
 jupyter
 shutil
-moviepy.editor
+moviepy
