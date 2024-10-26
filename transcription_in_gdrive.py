@@ -33,8 +33,8 @@ from moviepy.editor import VideoFileClip
 from openai import OpenAI
 
 # Define OpenAI scopes/credentials, initialize client
-OPENAI_API_KEY = st.secrets["openai_api_key"]
-OpenAI().api_key = OPENAI_API_KEY #bug
+os.environ['OPENAI_API_KEY'] = st.secrets["openai_api_key"]
+#OpenAI().api_key = OPENAI_API_KEY #bug
 client = OpenAI()
 
 # Define Google scopes/credentials, initialize client
