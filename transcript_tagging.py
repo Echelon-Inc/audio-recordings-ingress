@@ -393,7 +393,7 @@ def get_company_by_id(company_id):
 
 # Set the title of the Streamlit app
 st.set_page_config(
-        page_title="NOS Speech2Text",
+        page_title="NOS TranscriptTagging",
         page_icon="Echelon_Icon_Sky Blue.png",
 )
 st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width = 125)
