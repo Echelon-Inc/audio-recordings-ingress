@@ -401,6 +401,7 @@ st.title("NOS - Tag Transcripts")
 
 # Text input to accept a Google Drive or Google Docs link
 drive_link = st.text_input('Enter the Google Drive or Google Docs link to the document')
+st.markdown('[Raw Transcripts Google Drive Folder](https://drive.google.com/drive/u/0/folders/1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C)')
 
 # Check if the link has been provided
 if drive_link:
