@@ -13,6 +13,8 @@ Audio files are saved as .mp3 files in a new folder, Transcripts are saved as .d
 Custom properties set on a file in Google Drive using the API are not visible through the 
 Google Drive web interface. To access these properties, you need to use the Google Drive API.
 
+Deployed on Streamlit Cloud at https://echelon-nos-speech2text.streamlit.app/ 
+
 """
 
 # Echelon imports
@@ -54,16 +56,16 @@ docs_service = build('docs', 'v1', credentials=creds)
 
 # Define Google Drive folder IDs
 #PRODUCTION IDs
-# UNPROCESSED_AUDIO_GD_FOLDER_ID = '10asUMD9jFbWlIXsTxqSezPdJkJU8czdm'
-# TRANSCRIBED_AUDIO_GD_FOLDER_ID = '1KfdDf2LR7abUn-TpG9MrjYv3fhGXHmox'
-# TRANSCRIBED_TEXT_GD_FOLDER_ID = '1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C'
-# PROCESSED_RAW_AUDIO_GD_FOLDER_ID = '1TZzr1cxQGxohvFRR63kip7PxMCWExwTR'
+UNPROCESSED_AUDIO_GD_FOLDER_ID = '10asUMD9jFbWlIXsTxqSezPdJkJU8czdm'
+TRANSCRIBED_AUDIO_GD_FOLDER_ID = '1KfdDf2LR7abUn-TpG9MrjYv3fhGXHmox'
+TRANSCRIBED_TEXT_GD_FOLDER_ID = '1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C'
+PROCESSED_RAW_AUDIO_GD_FOLDER_ID = '1TZzr1cxQGxohvFRR63kip7PxMCWExwTR'
 
 #TEST IDs
-UNPROCESSED_AUDIO_GD_FOLDER_ID = '1Dvfn6HEIdLXKInF_Q5gOFtRUg8PWoCYj'
-TRANSCRIBED_AUDIO_GD_FOLDER_ID = '1IMCA6klxxq4UMks08xQy-KLp_g0DLM0V'
-TRANSCRIBED_TEXT_GD_FOLDER_ID = '1joWp7fS4XeHYSF-T3FrxiHu4gMTBzcw4'
-PROCESSED_RAW_AUDIO_GD_FOLDER_ID = '1jGL8WpV1gK1gFXmV4uYtOhVnNPkHpaXm'
+# UNPROCESSED_AUDIO_GD_FOLDER_ID = '1Dvfn6HEIdLXKInF_Q5gOFtRUg8PWoCYj'
+# TRANSCRIBED_AUDIO_GD_FOLDER_ID = '1IMCA6klxxq4UMks08xQy-KLp_g0DLM0V'
+# TRANSCRIBED_TEXT_GD_FOLDER_ID = '1joWp7fS4XeHYSF-T3FrxiHu4gMTBzcw4'
+# PROCESSED_RAW_AUDIO_GD_FOLDER_ID = '1jGL8WpV1gK1gFXmV4uYtOhVnNPkHpaXm'
 
 # Define functions that interact with local repo
 

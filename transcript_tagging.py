@@ -26,6 +26,8 @@ Metadata Example:
     'contacts_linked_ids': '58577394199,101,74371999087', , 
     'companies_linked_ids': '19198305190,25402526277', 
     }
+
+Deployed on Streamlit Cloud at https://echelon-nos-transcript-tagging.streamlit.app/
 """
 
 # Standard Python library imports
@@ -61,12 +63,12 @@ docs_service = build('docs', 'v1', credentials=creds)
 # Define Google Drive folder IDs
 
 # PRODUCTION
-# TRANSCRIBED_TEXT_GD_FOLDER_ID = '1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C'
-# TAGGED_TEXT_GD_FOLDER_ID = '1WhBzd0ehQQgAWvlG_J0KBefICe6r2ceA'
+TRANSCRIBED_TEXT_GD_FOLDER_ID = '1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C'
+TAGGED_TEXT_GD_FOLDER_ID = '1WhBzd0ehQQgAWvlG_J0KBefICe6r2ceA'
 
 # TESTING
-TRANSCRIBED_TEXT_GD_FOLDER_ID = '1joWp7fS4XeHYSF-T3FrxiHu4gMTBzcw4'
-TAGGED_TEXT_GD_FOLDER_ID = '150bxcdT0h9gkeDrGZRgpBelPK2prRps7'
+# TRANSCRIBED_TEXT_GD_FOLDER_ID = '1joWp7fS4XeHYSF-T3FrxiHu4gMTBzcw4'
+# TAGGED_TEXT_GD_FOLDER_ID = '150bxcdT0h9gkeDrGZRgpBelPK2prRps7'
 
 
 # Define functions that leverage Google Drive API
@@ -390,6 +392,11 @@ def get_company_by_id(company_id):
 # --- Streamlit App ---
 
 # Set the title of the Streamlit app
+st.set_page_config(
+        page_title="NOS Speech2Text",
+        page_icon="Echelon_Icon_Sky Blue.png",
+)
+st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width = 125)
 st.title("NOS - Tag Transcripts")
 
 # Text input to accept a Google Drive or Google Docs link
