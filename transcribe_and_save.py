@@ -9,11 +9,15 @@ October 2024 - Present
 
 This script iterates through audio/video files in a Google Drive folder and transcribes them. 
 Audio files are saved as .mp3 files in a new folder, Transcripts are saved as .docx in a new folder.
+.docx files are assigned metadata properties like transcription date/time, seconds transcribed, etc.
+Custom properties set on a file in Google Drive using the API are not visible through the 
+Google Drive web interface. To access these properties, you need to use the Google Drive API.
 
 """
 
 # Echelon imports
 # e.g. from utilities import function
+#from gdrive_functions import gd_list_audio_video_files,gd_download_file,gd_upload_file,gd_get_file_properties,gd_update_file_properties,gd_move_file_between_folders,gd_get_shareable_link
 
 # Standard python library imports
 import os
@@ -24,13 +28,15 @@ from datetime import datetime
 
 # Open source imports
 import streamlit as st
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 from docx import Document
 from pydub import AudioSegment
 from moviepy.editor import VideoFileClip
+
+# API imports
 from openai import OpenAI
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
 
 # Define OpenAI scopes/credentials, initialize client
 os.environ['OPENAI_API_KEY'] = st.secrets["openai_api_key"]
@@ -38,45 +44,53 @@ client = OpenAI()
 
 # Define Google scopes/credentials, initialize client
 SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents']
+gcp_secrets = st.secrets["gcp_service_account"]
 creds = service_account.Credentials.from_service_account_info(
-    st.secrets["gcp_service_account"],
+    gcp_secrets,
     scopes=SCOPES
 )
 drive_service = build('drive', 'v3', credentials=creds)
 docs_service = build('docs', 'v1', credentials=creds)
 
 # Define Google Drive folder IDs
-UNPROCESSED_AUDIO_GD_FOLDER_ID = '10asUMD9jFbWlIXsTxqSezPdJkJU8czdm'
-TRANSCRIBED_AUDIO_GD_FOLDER_ID = '1KfdDf2LR7abUn-TpG9MrjYv3fhGXHmox'
-TRANSCRIBED_TEXT_GD_FOLDER_ID = '1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C'
-ARCHIVE_GD_FOLDER_ID = '1TZzr1cxQGxohvFRR63kip7PxMCWExwTR'
+#PRODUCTION IDs
+# UNPROCESSED_AUDIO_GD_FOLDER_ID = '10asUMD9jFbWlIXsTxqSezPdJkJU8czdm'
+# TRANSCRIBED_AUDIO_GD_FOLDER_ID = '1KfdDf2LR7abUn-TpG9MrjYv3fhGXHmox'
+# TRANSCRIBED_TEXT_GD_FOLDER_ID = '1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C'
+# PROCESSED_RAW_AUDIO_GD_FOLDER_ID = '1TZzr1cxQGxohvFRR63kip7PxMCWExwTR'
+
+#TEST IDs
+UNPROCESSED_AUDIO_GD_FOLDER_ID = '1Dvfn6HEIdLXKInF_Q5gOFtRUg8PWoCYj'
+TRANSCRIBED_AUDIO_GD_FOLDER_ID = '1IMCA6klxxq4UMks08xQy-KLp_g0DLM0V'
+TRANSCRIBED_TEXT_GD_FOLDER_ID = '1joWp7fS4XeHYSF-T3FrxiHu4gMTBzcw4'
+PROCESSED_RAW_AUDIO_GD_FOLDER_ID = '1jGL8WpV1gK1gFXmV4uYtOhVnNPkHpaXm'
 
 # Define functions that interact with local repo
 
 def convert_to_mp3(input_file, mime_type):
     """
-    Converts any audio or video file to MP3 format using MIME type for identification.
+    Converts any audio or video file to MP3 format using MIME type for identification and returns the file path
+    along with the audio duration in seconds.
 
     Parameters:
         input_file (str): The path to the input audio or video file.
         mime_type (str): The MIME type of the input file.
 
     Returns:
-        str: The path to the converted .mp3 file.
+        tuple: The path to the converted .mp3 file and the duration in seconds.
 
     Raises:
         Exception: If there is an error during the conversion process.
     """
     import os
     import shutil
+    from pydub import AudioSegment
 
     # Determine the output file path by replacing the extension with .mp3
     base, _ = os.path.splitext(input_file)
     output_file = base + '.mp3'
 
     try:
-        print(f"Processing file {input_file} with MIME type {mime_type}")
-
         if mime_type == 'audio/mpeg':
             # If the file is already an MP3
             if os.path.abspath(input_file) != os.path.abspath(output_file):
@@ -91,13 +105,17 @@ def convert_to_mp3(input_file, mime_type):
         else:
             # Unsupported file type
             print(f"Unsupported file type: {mime_type}")
-            return None
+            return None, None
+
+        # Load the converted MP3 file with pydub to get the duration
+        audio = AudioSegment.from_mp3(output_file)
+        duration_seconds = len(audio) / 1000  # pydub returns duration in milliseconds
     except Exception as e:
         print(f"Error converting file {input_file}: {e}")
         raise
 
-    # Return the output file path
-    return output_file
+    # Return the output file path and duration in seconds
+    return output_file, duration_seconds
 
 
 def extract_audio_with_ffmpeg(input_file, output_file):
@@ -204,15 +222,51 @@ def gd_upload_file(file_path, folder_id, mime_type):
         'name': os.path.basename(file_path),
         'parents': [folder_id]
     }
+
     media = MediaFileUpload(file_path, mimetype=mime_type)
     uploaded_file = drive_service.files().create(
         body=file_metadata,
         media_body=media,
         fields='id'
     ).execute()
-    print(f"Uploaded file {file_path} to Google Drive with ID: {uploaded_file.get('id')}")
     return uploaded_file.get('id')
 
+
+def gd_get_file_properties(file_id):
+    """
+    Retrieves the properties of a file from Google Drive.
+
+    Parameters:
+        file_id (str): The ID of the file.
+
+    Returns:
+        dict: A dictionary containing the file's properties.
+    """
+    file = drive_service.files().get(fileId=file_id, fields='properties').execute()
+    properties = file.get('properties', {})
+    return properties
+
+
+def gd_update_file_properties(file_id, new_properties):
+    """
+    Updates the properties of a file in Google Drive.
+
+    Parameters:
+        file_id (str): The ID of the file.
+        new_properties (dict): A dictionary of new properties to set.
+
+    Returns:
+        dict: The updated file resource.
+    """
+    file_metadata = {
+        'properties': new_properties
+    }
+    updated_file = drive_service.files().update(
+        fileId=file_id,
+        body=file_metadata,
+        fields='id, properties'
+    ).execute()
+    return updated_file
 
 def gd_move_file_between_folders(file_id, target_folder_id):
     """
@@ -267,6 +321,7 @@ def gd_get_shareable_link(file_id):
     except Exception as e:
         print(f"Error getting shareable link for file {file_id}: {str(e)}")
         return None
+
 
 
 # Define functions that leverage OpenAI API
@@ -355,8 +410,11 @@ if st.button('Transcribe Audio Files'):
             st.write(f"Downloaded file: {input_audio_file_name} with MIME type: {input_audio_mime_type}")
 
             # Convert the input file to MP3 with the same name. Delete the input file
-            converted_audio_path = convert_to_mp3(input_audio_path, input_audio_mime_type)
-            st.write(f"Converted {input_audio_file_name} to .mp3 format for transcription. Output file: {converted_audio_path}")
+            converted_audio_path, duration_seconds = convert_to_mp3(input_audio_path, input_audio_mime_type)
+            if converted_audio_path:
+                st.write(f"Converted {input_audio_file_name} to .mp3 format for transcription. Output file: {converted_audio_path}. Seconds converted: {duration_seconds}.")
+            else:
+                st.write("Conversion failed. Unsupported MIME type or an error occurred.")
 
             # Generate new file name based on timestamp and rename file
             timestamp = datetime.now().strftime('%Y-%m-%d-%H%M%S%f') 
@@ -389,7 +447,7 @@ if st.button('Transcribe Audio Files'):
 
             # Create the docx
             mp3_link = gd_get_shareable_link(mp3_gd_file_id)
-            doc_file_name = os.path.join(os.getcwd(), f"SIGNAL_{timestamp}_INITIALS_TRANSCRIPTION_FOR REVIEW.docx")
+            doc_file_name = os.path.join(os.getcwd(), f"SIGNAL_{timestamp}_TRANSCRIPT_UNTAGGED.docx")
 
             try:
                 doc = Document()
@@ -398,14 +456,16 @@ if st.button('Transcribe Audio Files'):
                 doc.add_paragraph("*Please rename the file with the initials of the recorder and confirmation you have reviewed.")
                 doc.add_heading('Transcribed on:', level=1)
                 doc.add_paragraph(f"{timestamp}")
+                doc.add_heading('Seconds transcribed:')
+                doc.add_paragraph(str(duration_seconds))
+                doc.add_heading('MP3 File Link:')
+                doc.add_paragraph(mp3_link) 
                 doc.add_heading('Recorded by: (please specify)', level=1)
                 doc.add_paragraph("David McColl/Erik Allen/Kerri Faber/Joel Moxley/Christian Bader")
                 doc.add_heading('Raw Transcription:', level=1)
                 doc.add_paragraph(raw_transcription)
                 doc.add_heading('Formatted Transcription:', level=1)
                 doc.add_paragraph(formatted_transcription)
-                doc.add_heading('MP3 File Link:')
-                doc.add_paragraph(mp3_link)
                 
                 # Save the document
                 doc.save(doc_file_name)
@@ -415,13 +475,26 @@ if st.button('Transcribe Audio Files'):
 
             # Upload the docx
             if os.path.exists(doc_file_name):
-                doc_id = gd_upload_file(doc_file_name, TRANSCRIBED_TEXT_GD_FOLDER_ID, mime_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+                doc_id = gd_upload_file(
+                    doc_file_name,
+                    TRANSCRIBED_TEXT_GD_FOLDER_ID,
+                    mime_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                )
                 st.write(f"Transcript .docx uploaded to Google Drive with ID: {doc_id}")
+
+                # Update the file's properties directly
+                properties = {
+                    'transcription_timestamp': timestamp,
+                    'duration_seconds': str(duration_seconds),
+                    'audio_file_link': mp3_link
+                }
+                gd_update_file_properties(doc_id, properties)
+                st.write(f"Updated properties for file ID: {doc_id}. Properties are {properties}")
             else:
                 st.write(f"Document not found at {doc_file_name}. Skipping upload.")
 
             # Move the original audio file from the GDrive to archive folder
-            gd_move_file_between_folders(input_audio_gd_file_id, ARCHIVE_GD_FOLDER_ID)
+            gd_move_file_between_folders(input_audio_gd_file_id, PROCESSED_RAW_AUDIO_GD_FOLDER_ID)
             st.write(f"Moved {input_audio_file_name} to archive folder.")
             
             # Clean up the local files after all processing
