@@ -398,6 +398,7 @@ st.set_page_config(
 )
 st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width = 125)
 st.title("NOS - Tag Transcripts")
+st.write("Custom Built for Kerri Faber")
 
 # Text input to accept a Google Drive or Google Docs link
 drive_link = st.text_input('Enter the Google Drive or Google Docs link to the document')

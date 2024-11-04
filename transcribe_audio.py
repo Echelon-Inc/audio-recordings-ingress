@@ -381,7 +381,8 @@ st.set_page_config(
         page_icon="Echelon_Icon_Sky Blue.png",
 )
 st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width = 125)
-st.title("NOS Daily Digest Transcription App - Custom Built for Kerri Faber")
+st.title("NOS - Transcribe Audio Files")
+st.write("Custom Built for Kerri Faber")
 st.write("Once you have uploaded your files to the folder linked below, click the 'Transcribe Audio Files' button to transcribe. Full instructions are available on Notion.")
 st.markdown('[Upload Folder](https://drive.google.com/drive/folders/10asUMD9jFbWlIXsTxqSezPdJkJU8czdm?usp=drive_link)')
 st.markdown('[Notion](https://www.notion.so/Pulse-4799295f90594380b55f75e0d78dbb03?p=11b9668a26d680e39d57e8243d8f7178&pm=s)')
