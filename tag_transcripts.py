@@ -458,6 +458,10 @@ if drive_link:
             options=list(contact_options.keys())
         )
         
+        # --- Notes ---
+        # Text area for entering notes to be added to the engagement
+        action_items = st.text_area('Enter your action items here. Be specific!')
+
         # Multiselect for selecting companies to tag in the engagement
         selected_companies = st.multiselect(
             'Tag Companies (already in HubSpot)',
@@ -479,10 +483,6 @@ if drive_link:
         st.header("Add New Contacts to HubSpot")
         st.write("**Please enter contacts in the format 'First Middle Last', one per line. If the contact has multiple first names or middle names, include them before the last name. The last word will be treated as the last name.**")
         new_contacts_input = st.text_area('Enter names of contacts to create in HubSpot')
-
-        # --- Notes ---
-        # Text area for entering notes to be added to the engagement
-        action_items = st.text_area('Enter your action items here. Be specific!')
         
         # --- Submit ---
         # Button to submit the engagement to HubSpot

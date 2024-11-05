@@ -24,6 +24,7 @@ Deployed on Streamlit Cloud at https://echelon-nos-speech2text.streamlit.app/
 # Standard python library imports
 import os
 import io
+import re
 import json
 import shutil
 from datetime import datetime
@@ -45,7 +46,11 @@ os.environ['OPENAI_API_KEY'] = st.secrets["openai_api_key"]
 client = OpenAI()
 
 # Define Google scopes/credentials, initialize client
-SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents']
+SCOPES = [
+    'https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/documents',
+    'https://www.googleapis.com/auth/spreadsheets'
+]
 gcp_secrets = st.secrets["gcp_service_account"]
 creds = service_account.Credentials.from_service_account_info(
     gcp_secrets,
@@ -53,19 +58,24 @@ creds = service_account.Credentials.from_service_account_info(
 )
 drive_service = build('drive', 'v3', credentials=creds)
 docs_service = build('docs', 'v1', credentials=creds)
+sheets_service = build('sheets', 'v4', credentials=creds)
 
-# Define Google Drive folder IDs
+# Define Google Drive folder and spreadsheet IDs
 #PRODUCTION IDs
-UNPROCESSED_AUDIO_GD_FOLDER_ID = '10asUMD9jFbWlIXsTxqSezPdJkJU8czdm'
-TRANSCRIBED_AUDIO_GD_FOLDER_ID = '1KfdDf2LR7abUn-TpG9MrjYv3fhGXHmox'
-TRANSCRIBED_TEXT_GD_FOLDER_ID = '1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C'
-PROCESSED_RAW_AUDIO_GD_FOLDER_ID = '1TZzr1cxQGxohvFRR63kip7PxMCWExwTR'
+GD_FOLDER_ID_UNPROCESSED_AUDIO = '10asUMD9jFbWlIXsTxqSezPdJkJU8czdm'
+GD_FOLDER_ID_TRANSCRIBED_AUDIO = '1KfdDf2LR7abUn-TpG9MrjYv3fhGXHmox'
+GD_FOLDER_ID_TRANSCRIBED_TEXT = '1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C'
+GD_FOLDER_ID_PROCESSED_RAW_AUDIO = '1TZzr1cxQGxohvFRR63kip7PxMCWExwTR'
+GD_SPREADSHEET_ID_INGRESS_LOG = '1iKC8PwIMA3OMMq6QaAxfvxiV3v8yVEow1OTBwoSKDrc'
+GD_SHEET_NAME_INGRESS_LOG = 'transcribe_audio'
 
 #TEST IDs
-# UNPROCESSED_AUDIO_GD_FOLDER_ID = '1Dvfn6HEIdLXKInF_Q5gOFtRUg8PWoCYj'
-# TRANSCRIBED_AUDIO_GD_FOLDER_ID = '1IMCA6klxxq4UMks08xQy-KLp_g0DLM0V'
-# TRANSCRIBED_TEXT_GD_FOLDER_ID = '1joWp7fS4XeHYSF-T3FrxiHu4gMTBzcw4'
-# PROCESSED_RAW_AUDIO_GD_FOLDER_ID = '1jGL8WpV1gK1gFXmV4uYtOhVnNPkHpaXm'
+# GD_FOLDER_ID_UNPROCESSED_AUDIO = '1Dvfn6HEIdLXKInF_Q5gOFtRUg8PWoCYj'
+# GD_FOLDER_ID_TRANSCRIBED_AUDIO = '1IMCA6klxxq4UMks08xQy-KLp_g0DLM0V'
+# GD_FOLDER_ID_TRANSCRIBED_TEXT = '1joWp7fS4XeHYSF-T3FrxiHu4gMTBzcw4'
+# GD_FOLDER_ID_PROCESSED_RAW_AUDIO = '1jGL8WpV1gK1gFXmV4uYtOhVnNPkHpaXm'
+# GD_SPREADSHEET_ID_INGRESS_LOG = '1bs5zBmE9HanOlqf6LMAT-wN2YyhR-6eyMJfYCTR93pk'
+# GD_SHEET_NAME_INGRESS_LOG = 'transcribe_audio'
 
 # Define functions that interact with local repo
 
@@ -170,6 +180,27 @@ def rename_file(input_file_path, new_file_name):
 
 
 # Define functions that interact with Google Docs + Drive
+
+def gd_get_file_creation_date(file_id):
+    """
+    Retrieves the original upload date (creation date) of a file from Google Drive.
+
+    Parameters:
+        file_id (str): The ID of the file.
+
+    Returns:
+        str: The creation date and time in ISO 8601 format (e.g., '2023-11-04T12:34:56.789Z').
+
+    Raises:
+        Exception: If there is an error retrieving the creation date.
+    """
+    try:
+        file = drive_service.files().get(fileId=file_id, fields='createdTime').execute()
+        created_time = file.get('createdTime')
+        return created_time
+    except Exception as e:
+        print(f"Error retrieving creation date for file {file_id}: {str(e)}")
+        return None
 
 def gd_list_audio_video_files(folder_id):
     """
@@ -324,8 +355,6 @@ def gd_get_shareable_link(file_id):
         print(f"Error getting shareable link for file {file_id}: {str(e)}")
         return None
 
-
-
 # Define functions that leverage OpenAI API
 
 def transcribe(audio_file_path):
@@ -395,62 +424,76 @@ if st.button('Transcribe Audio Files'):
     st.write("Transcription started...")
 
     try:
-        audio_files = gd_list_audio_video_files(UNPROCESSED_AUDIO_GD_FOLDER_ID)
-        count = 0
-        file_count = len(audio_files)
-        st.write(f"Found {file_count} audio files to transcribe.")
+        gd_audio_files = gd_list_audio_video_files(GD_FOLDER_ID_UNPROCESSED_AUDIO)
+        processed_files_count = 0
+        gd_file_count = len(gd_audio_files)
+        st.write(f"Found {gd_file_count} audio files to transcribe.")
 
-        for file in audio_files:
-            input_audio_gd_file_id = file['id']
-            input_audio_file_name = file['name']  # Original file name
-            input_audio_mime_type = file['mimeType']
-            count += 1
-            st.write(f"Starting file {count}.")
-            st.write(f"Filename: {input_audio_file_name}")
+        for file in gd_audio_files:
+            gd_input_audio_file_id = file['id']
+            gd_input_audio_file_name = file['name']  # Original file name
+            gd_input_audio_file_mimeType = file['mimeType']
+            gd_input_audio_file_link = gd_get_shareable_link(gd_input_audio_file_id)
+
+            # Get the original upload date
+            gd_input_audio_file_createdTime = gd_get_file_creation_date(gd_input_audio_file_id)
+
+            # Convert to formatted date/time string
+            if gd_input_audio_file_createdTime:
+                gd_input_audio_file_created_datetime = datetime.strptime(
+                    gd_input_audio_file_createdTime, '%Y-%m-%dT%H:%M:%S.%fZ'
+                )
+                datetime_uploaded = gd_input_audio_file_created_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                datetime_uploaded = 'Unknown'
+            
+            datetime_uploaded = gd_input_audio_file_created_datetime.strftime('%Y-%m-%d-%H%M%S%f')
+
+            processed_files_count += 1
+            st.write(f"Starting file {processed_files_count}.")
+            st.write(f"Filename: {gd_input_audio_file_name}")
 
             # Download the original file to local repo (before any conversion)
-            input_audio_path = gd_download_file(input_audio_gd_file_id, input_audio_file_name)
-            st.write(f"Downloaded file: {input_audio_file_name} with MIME type: {input_audio_mime_type}")
+            input_audio_local_path = gd_download_file(gd_input_audio_file_id, gd_input_audio_file_name)
+            st.write(f"Downloaded file: {gd_input_audio_file_name} with MIME type: {gd_input_audio_file_mimeType}")
 
             # Convert the input file to MP3 with the same name. Delete the input file
-            converted_audio_path, duration_seconds = convert_to_mp3(input_audio_path, input_audio_mime_type)
-            if converted_audio_path:
-                st.write(f"Converted {input_audio_file_name} to .mp3 format for transcription. Output file: {converted_audio_path}. Seconds converted: {duration_seconds}.")
+            output_mp3_local_path, seconds_transcribed = convert_to_mp3(input_audio_local_path, gd_input_audio_file_mimeType)
+            if output_mp3_local_path:
+                st.write(f"Converted {gd_input_audio_file_name} to .mp3 format for transcription. Output file: {output_mp3_local_path}. Seconds converted: {seconds_transcribed}.")
             else:
                 st.write("Conversion failed. Unsupported MIME type or an error occurred.")
 
             # Generate new file name based on timestamp and rename file
-            timestamp = datetime.now().strftime('%Y-%m-%d-%H%M%S%f') 
-            final_audio_file_name = f"SIGNAL_{timestamp}.mp3"
-            final_audio_path = rename_file(converted_audio_path, final_audio_file_name)
-            st.write(f"Renamed {converted_audio_path} to {final_audio_path}")
+            datetime_transcribed = datetime.now().strftime('%Y-%m-%d-%H%M%S%f') 
+            gd_output_mp3_file_name = f"SIGNAL_{datetime_transcribed}.mp3"
+            renamed_mp3_local_path = rename_file(output_mp3_local_path, gd_output_mp3_file_name)
+            st.write(f"Renamed {output_mp3_local_path} to {gd_output_mp3_file_name}")
 
             # Upload mp3 file to Google Drive
-            mp3_gd_file_id = gd_upload_file(final_audio_path, TRANSCRIBED_AUDIO_GD_FOLDER_ID,mime_type='audio/mpeg')
-            st.write(f".mp3 file uploaded to Google Drive with ID: {mp3_gd_file_id}")
+            gd_output_mp3_file_id = gd_upload_file(renamed_mp3_local_path, GD_FOLDER_ID_TRANSCRIBED_AUDIO,mime_type='audio/mpeg')
+            st.write(f".mp3 file uploaded to Google Drive with ID: {gd_output_mp3_file_id}")
 
             # Transcribe the audio
-            raw_transcription = transcribe(final_audio_path)
-            st.write(f"Raw transcription generated for {final_audio_file_name}.")
+            raw_transcription = transcribe(renamed_mp3_local_path)
+            st.write(f"Raw transcription generated for {gd_output_mp3_file_name}.")
 
             # Prompt GPT-4 to format the transcription
             system_prompt = (
-                "Optimize this raw transcription by formatting and cleaning up the text for a reader. "
-                "It is important that you preserve all details. Write as if you were a diligent third party "
-                "analyzing the transcript presented by your boss, not simply a first-person reformat. "
-                "It is important you communicate the important components of their message directly. "
-                "In parts of the text that seem to not make sense, remember that this is an audio transcript, "
-                "and mark these as (*sp?)"
+                "Optimize the raw audio transcription by formatting and cleaning up the text for readability."
+                "Preserve all details to ensure no information is lost."
+                "Focus on clarity and direct communication of key points."
+                "For any parts of the text that you think is a name of a company or person, mark them as (*name?)."
             )
             task_prompt = raw_transcription
-            formatted_transcription = openai_llm_call(system_prompt, task_prompt, client)
+            processed_transcription = openai_llm_call(system_prompt, task_prompt, client)
            
             # After extracting the formatted transcription content from GPT-4
-            st.write(f"Formatted transcription generated for {final_audio_file_name}")
+            st.write(f"Formatted transcription generated for {gd_output_mp3_file_name}")
 
             # Create the docx
-            mp3_link = gd_get_shareable_link(mp3_gd_file_id)
-            doc_file_name = os.path.join(os.getcwd(), f"SIGNAL_{timestamp}_TRANSCRIPT_UNTAGGED.docx")
+            gd_output_mp3_file_link = gd_get_shareable_link(gd_output_mp3_file_id)
+            gd_transcript_file_name = os.path.join(os.getcwd(), f"SIGNAL_{datetime_transcribed}_TRANSCRIPT_UNTAGGED.docx")
 
             try:
                 doc = Document()
@@ -458,69 +501,111 @@ if st.button('Transcribe Audio Files'):
                 doc.add_paragraph("*Please note that names will be difficult to identify in this iteration of development.\nThe next phase of development will target entity resolution. If there is any confusion, please reference the source audio file and alter the transcribed text.")
                 doc.add_paragraph("*Please rename the file with the initials of the recorder and confirmation you have reviewed.")
                 doc.add_heading('Transcribed on:', level=1)
-                doc.add_paragraph(f"{timestamp}")
+                doc.add_paragraph(f"{datetime_transcribed}")
+                doc.add_heading('Recorded on:', level=1)
+                doc.add_paragraph(f"{datetime_uploaded}")
                 doc.add_heading('Seconds transcribed:')
-                doc.add_paragraph(str(duration_seconds))
+                doc.add_paragraph(str(seconds_transcribed))
                 doc.add_heading('MP3 File Link:')
-                doc.add_paragraph(mp3_link) 
-                doc.add_heading('Recorded by: (please specify)', level=1)
-                doc.add_paragraph("David McColl/Erik Allen/Kerri Faber/Joel Moxley/Christian Bader")
+                doc.add_paragraph(gd_output_mp3_file_link) 
                 doc.add_heading('Raw Transcription:', level=1)
                 doc.add_paragraph(raw_transcription)
                 doc.add_heading('Formatted Transcription:', level=1)
-                doc.add_paragraph(formatted_transcription)
+                doc.add_paragraph(processed_transcription)
                 
                 # Save the document
-                doc.save(doc_file_name)
+                doc.save(gd_transcript_file_name)
                 st.write(f"Generated .docx Transcript.")
             except Exception as e:
                 st.write(f"Error creating document: {str(e)}")
 
             # Upload the docx
-            if os.path.exists(doc_file_name):
-                doc_id = gd_upload_file(
-                    doc_file_name,
-                    TRANSCRIBED_TEXT_GD_FOLDER_ID,
+            if os.path.exists(gd_transcript_file_name):
+                gd_transcript_file_id = gd_upload_file(
+                    gd_transcript_file_name,
+                    GD_FOLDER_ID_TRANSCRIBED_TEXT,
                     mime_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
                 )
-                st.write(f"Transcript .docx uploaded to Google Drive with ID: {doc_id}")
+                st.write(f"Transcript .docx uploaded to Google Drive with ID: {gd_transcript_file_id}")
 
                 # Update the file's properties directly
                 properties = {
-                    'transcription_timestamp': timestamp,
-                    'duration_seconds': str(duration_seconds),
-                    'audio_file_link': mp3_link
+                    'transcription_timestamp': datetime_transcribed,
+                    'upload_timestamp': datetime_uploaded,
+                    'duration_seconds': str(seconds_transcribed),
+                    'raw_audio_file_link': gd_input_audio_file_link,
+                    'mp3_file_link': gd_output_mp3_file_link
                 }
-                gd_update_file_properties(doc_id, properties)
-                st.write(f"Updated properties for file ID: {doc_id}. Properties are {properties}")
+                gd_update_file_properties(gd_transcript_file_id, properties)
+                st.write(f"Updated properties for file ID: {gd_transcript_file_id}. Properties are {properties}")
             else:
-                st.write(f"Document not found at {doc_file_name}. Skipping upload.")
+                st.write(f"Document not found at {gd_transcript_file_name}. Skipping upload.")
 
             # Move the original audio file from the GDrive to archive folder
-            gd_move_file_between_folders(input_audio_gd_file_id, PROCESSED_RAW_AUDIO_GD_FOLDER_ID)
-            st.write(f"Moved {input_audio_file_name} to archive folder.")
+            gd_move_file_between_folders(gd_input_audio_file_id, GD_FOLDER_ID_PROCESSED_RAW_AUDIO)
+            st.write(f"Moved {gd_input_audio_file_name} to archive folder.")
             
             # Clean up the local files after all processing
             #TODO have everything in a temp dir and clear it.
             #  
             # Delete the original upload file if it exists
-            if os.path.exists(input_audio_path):
-                os.remove(input_audio_path)
-                st.write(f"Deleted original upload file: {input_audio_path}")
+            if os.path.exists(input_audio_local_path):
+                os.remove(input_audio_local_path)
+                st.write(f"Deleted original upload file: {input_audio_local_path}")
 
             # Delete the converted .mp3 file if it exists
-            if os.path.exists(final_audio_path):
-                os.remove(final_audio_path)
-                st.write(f"Deleted local .mp3 file: {final_audio_path}")
+            if os.path.exists(renamed_mp3_local_path):
+                os.remove(renamed_mp3_local_path)
+                st.write(f"Deleted local .mp3 file: {renamed_mp3_local_path}")
 
-            if os.path.exists(doc_file_name):
-                os.remove(doc_file_name)
-                st.write(f"Deleted local .docx file: {doc_file_name}")
+            if os.path.exists(gd_transcript_file_name):
+                os.remove(gd_transcript_file_name)
+                st.write(f"Deleted local .docx file: {gd_transcript_file_name}")
 
-            doc_link = gd_get_shareable_link(doc_id)
-            st.write(f"File {count} complete. Transcript Link: {doc_link}")
+            gd_transcript_file_link = gd_get_shareable_link(gd_transcript_file_id)
+            st.write(f"File {processed_files_count} complete. Transcript Link: {gd_transcript_file_link}")
+
+            # Write to ingress log
+
+            # Clean the transcription texts to remove line breaks and extra whitespace
+            raw_transcription_single_line = re.sub(r'\s+', ' ', raw_transcription).strip()
+            processed_transcription_single_line = re.sub(r'\s+', ' ', processed_transcription).strip()
+
+            # Prepare the row data with cleaned transcription texts
+            row = [
+                datetime_transcribed,
+                datetime_uploaded,
+                seconds_transcribed,
+                gd_transcript_file_link,
+                gd_transcript_file_id,
+                os.path.basename(gd_transcript_file_name),
+                gd_output_mp3_file_id,
+                gd_output_mp3_file_name,
+                gd_output_mp3_file_link,
+                gd_input_audio_file_id,
+                gd_input_audio_file_name,
+                gd_input_audio_file_link,
+                gd_input_audio_file_mimeType,
+                raw_transcription_single_line,
+                processed_transcription_single_line
+            ]
+
+            # Append the row to the spreadsheet
+            try:
+                request = sheets_service.spreadsheets().values().append(
+                    spreadsheetId=GD_SPREADSHEET_ID_INGRESS_LOG,
+                    range=f'{GD_SHEET_NAME_INGRESS_LOG}!A:Z',
+                    valueInputOption='RAW',
+                    insertDataOption='INSERT_ROWS',
+                    body={'values': [row]}
+                )
+                response = request.execute()
+                st.write(f"Logged transcription to spreadsheet.")
+            except Exception as e:
+                st.write(f"Error writing to spreadsheet: {str(e)}")
+
     except Exception as e:
         st.error(f"Error during transcription: {str(e)}")
 
-    st.success(f"{count} transcription(s) complete! Find files in the folder linked below.")
+    st.success(f"{processed_files_count} transcription(s) complete! Find files in the folder linked below.")
     st.markdown('[Transcriptions Folder](https://drive.google.com/drive/u/0/folders/1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C)')
