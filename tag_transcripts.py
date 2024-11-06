@@ -41,6 +41,7 @@ from email.mime.multipart import MIMEMultipart
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 import base64
+import time  # Added for timestamp
 
 # ------------------------------
 # Configuration and Initialization
@@ -311,9 +312,13 @@ def create_note(note_body):
         str: The ID of the created note, or None if creation failed.
     """
     url = "https://api.hubapi.com/crm/v3/objects/notes"
+    current_timestamp = int(time.time() * 1000)  # Current time in milliseconds
+    # Alternatively, use ISO 8601 format:
+    # current_timestamp = datetime.utcnow().isoformat() + 'Z'
     data = {
         "properties": {
-            "hs_note_body": note_body  # 'hs_note_body' is the property for the note content
+            "hs_note_body": note_body,
+            "hs_timestamp": str(current_timestamp)  # Adjust format if needed
         }
     }
     try:
