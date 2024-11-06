@@ -1,88 +1,118 @@
-"""
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-HubSpot Entity Tagging Step for Echelon NOS
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Streamlit App: Enhanced Transcript Tagging with Corrected UI Flow
 
-Authors: Christian Bader
-October 2024 - Present
+# ------------------------------------------------------------
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# HubSpot Entity Tagging Step for Echelon NOS
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+# Authors: Christian Bader
+# October 2024 - Present
+#
+# This script takes a transcription as input and allows a user to tag entities
+# mentioned in the transcript. Tagged entities are directly linked on HubSpot.
+# Any tagged entity that does not already exist in HubSpot will have a new unique
+# profile created, then will be tagged. "Tagging" links the Google Doc with the
+# transcript to the relevant customer/company profile in HubSpot with a Note.
+# The Google Doc's metadata store will be updated to include the linked Hubspot IDs.
+#
+# Deployed on Streamlit Cloud.
+# ------------------------------------------------------------
 
-This script takes a transcription as input and allows a user to tag entities
-mentioned in the transcript. Tagged entities are directly linked on HubSpot.
-Any tagged entity that does not already exist in HubSpot will have a new unique
-profile created, then will be tagged. "Tagging" links the Google Doc with the
-transcript to the relevant customer/company profile in HubSpot with a Note.
-The Google Doc's metadata store will be updated to include the linked Hubspot IDs.
-For example: 
-Metadata Example:
-    {
-    'file_title': 'Test', 
-    'action_items': 'Remind me to do this'
-    'transcription_timestamp': '2024-10-31-164400836774',
-    'audio_file_link': 'https://drive.google.com/file/d/1wA1eO5L2nd8MK_0U_y-uise8NRvXB1PO/view?usp=drivesdk',  
-    'duration_seconds': '16.347', 
-    'who_recorded_ids': '58577394199', 
-    'new_contact_ids': '74371999087', 
-    'new_company_ids': '25402526277'
-    'contacts_linked_ids': '58577394199,101,74371999087', , 
-    'companies_linked_ids': '19198305190,25402526277', 
-    }
-
-Deployed on Streamlit Cloud at https://echelon-nos-transcript-tagging.streamlit.app/
-"""
-
-# Standard Python library imports
+# ------------------------------
+# Import Statements
+# ------------------------------
 import json
 import re
 import io
 import os
+from datetime import datetime
 
-# Open source imports
 import streamlit as st
 import requests
 
-# API imports
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-# Define HubSpot credentials, initialize client
+import smtplib
+import ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+import base64
+
+# ------------------------------
+# Configuration and Initialization
+# ------------------------------
+
+# Set Streamlit page configuration
+st.set_page_config(
+    page_title="NOS Transcript Tagging",
+    page_icon="Echelon_Icon_Sky Blue.png",
+    layout="wide"
+)
+
+# Display Echelon logo
+st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width=125)
+st.title("NOS - Tag Transcripts")
+st.write("Custom Built for Kerri Faber")
+
+# ------------------------------
+# Initialize Session State
+# ------------------------------
+if 'transcriptions_log' not in st.session_state:
+    st.session_state['transcriptions_log'] = []
+
+# UI State Flag
+if 'show_form' not in st.session_state:
+    st.session_state['show_form'] = True  # Show form initially
+
+# ------------------------------
+# Define HubSpot Credentials and Headers
+# ------------------------------
 HUBSPOT_API_TOKEN = st.secrets["hubspot_api_token"]
+hubspot_portal_id = st.secrets["hubspot_portal_id"]  # Initialize Portal ID from secrets
+
 headers = {
     "Authorization": f"Bearer {HUBSPOT_API_TOKEN}",
     "Content-Type": "application/json"
 }
 
-# Define Google scopes/credentials, initialize client
-SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents']
+# ------------------------------
+# Define Google API Scopes and Initialize Clients
+# ------------------------------
+SCOPES = [
+    'https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/documents',
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/gmail.send'  # Added Gmail scope
+]
+gcp_secrets = st.secrets["gcp_service_account"]
 creds = service_account.Credentials.from_service_account_info(
-    st.secrets["gcp_service_account"],
+    gcp_secrets,
     scopes=SCOPES
 )
 drive_service = build('drive', 'v3', credentials=creds)
 docs_service = build('docs', 'v1', credentials=creds)
+sheets_service = build('sheets', 'v4', credentials=creds)
 
-# Define Google Drive folder IDs
-
-# PRODUCTION
-TRANSCRIBED_TEXT_GD_FOLDER_ID = '1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C'
-TAGGED_TEXT_GD_FOLDER_ID = '1WhBzd0ehQQgAWvlG_J0KBefICe6r2ceA'
-
+# ------------------------------
+# Define Google Drive Folder and Spreadsheet IDs
+# ------------------------------
 # TESTING
-# TRANSCRIBED_TEXT_GD_FOLDER_ID = '1joWp7fS4XeHYSF-T3FrxiHu4gMTBzcw4'
-# TAGGED_TEXT_GD_FOLDER_ID = '150bxcdT0h9gkeDrGZRgpBelPK2prRps7'
+GD_FOLDER_ID_TRANSCRIBED_TEXT = st.secrets["GD_FOLDER_ID_TRANSCRIBED_TEXT_TEST"]
+GD_FOLDER_ID_TAGGED_TEXT = st.secrets["GD_FOLDER_ID_TAGGED_TEXT_TEST"]
+GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["GD_SPREADSHEET_ID_INGRESS_LOG_TEST"]
+GD_SHEET_NAME_INGRESS_LOG = 'tag_transcripts'
 
-
-# Define functions that leverage Google Drive API
+# ------------------------------
+# Define Google Drive and HubSpot Functions
+# ------------------------------
 
 def gd_move_file_between_folders(file_id, target_folder_id):
     """
     Moves a file to a different Google Drive folder.
-
-    Parameters:
-        file_id (str): The ID of the file to move.
-        target_folder_id (str): The ID of the destination folder.
-
-    Returns:
-        None
     """
     try:
         # Retrieve the existing parents to remove
@@ -99,18 +129,11 @@ def gd_move_file_between_folders(file_id, target_folder_id):
 
         print(f"File ID {file_id} moved to folder ID {target_folder_id}")
     except Exception as e:
-        print(f"Error moving file {file_id}: {str(e)}")
-
+        st.error(f"Error moving file {file_id}: {str(e)}")
 
 def gd_extract_file_id(drive_link):
     """
     Extracts the file ID from a Google Drive or Google Docs link.
-
-    Parameters:
-        drive_link (str): The raw URL.
-
-    Returns:
-        str: The Google Drive file ID.
     """
     # Regular expressions to extract the file ID from different Google URLs
     patterns = [
@@ -129,48 +152,47 @@ def gd_extract_file_id(drive_link):
 def gd_get_file_properties(file_id):
     """
     Retrieves the properties of a file from Google Drive.
-
-    Parameters:
-        file_id (str): The ID of the file.
-
-    Returns:
-        dict: A dictionary containing the file's properties.
     """
-    file = drive_service.files().get(fileId=file_id, fields='properties').execute()
-    properties = file.get('properties', {})
-    return properties
+    try:
+        file = drive_service.files().get(fileId=file_id, fields='properties').execute()
+        properties = file.get('properties', {})
+        return properties
+    except Exception as e:
+        st.error(f"Error fetching file properties: {e}")
+        return {}
 
-def gd_merge_file_properties(file_id, new_properties):
+def gd_update_file_properties(file_id, new_properties):
     """
-    Merges the properties of a file in Google Drive.
-
-    Parameters:
-        file_id (str): The ID of the file.
-        new_properties (dict): A dictionary of new properties to set.
-
-    Returns:
-        dict: The updated file resource.
+    Clears all existing properties of a file in Google Drive and sets new properties.
     """
-    file_metadata = {
-        'properties': new_properties
-    }
-    updated_file = drive_service.files().update(
-        fileId=file_id,
-        body=file_metadata,
-        fields='id, properties'
-    ).execute()
-    return updated_file
+    try:
+        # Step 1: Retrieve existing properties
+        file = drive_service.files().get(fileId=file_id, fields='properties').execute()
+        existing_properties = file.get('properties', {})
+
+        # Step 2: Prepare properties to delete (set their values to None)
+        properties_to_delete = {key: None for key in existing_properties.keys()}
+
+        # Step 3: Combine properties to delete with new properties
+        update_properties = {**properties_to_delete, **new_properties}
+
+        # Step 4: Update the file properties
+        file_metadata = {
+            'properties': update_properties
+        }
+        updated_file = drive_service.files().update(
+            fileId=file_id,
+            body=file_metadata,
+            fields='id, properties'
+        ).execute()
+        return updated_file
+    except Exception as e:
+        st.error(f"Error updating file properties: {e}")
+        return {}
 
 def gd_rename_file(file_id, new_name):
     """
     Renames a file in Google Drive.
-
-    Parameters:
-        file_id (str): The ID of the file to rename.
-        new_name (str): The new name for the file.
-
-    Returns:
-        dict: The updated file resource.
     """
     try:
         file_metadata = {'name': new_name}
@@ -183,40 +205,6 @@ def gd_rename_file(file_id, new_name):
     except Exception as e:
         st.error(f"Error renaming file: {e}")
         return None
-
-def gd_update_file_properties(file_id, new_properties):
-    """
-    Clears all existing properties of a file in Google Drive and sets new properties.
-
-    Parameters:
-        file_id (str): The ID of the file.
-        new_properties (dict): A dictionary of new properties to set.
-
-    Returns:
-        dict: The updated file resource.
-    """
-    # Step 1: Retrieve existing properties
-    file = drive_service.files().get(fileId=file_id, fields='properties').execute()
-    existing_properties = file.get('properties', {})
-
-    # Step 2: Prepare properties to delete (set their values to None)
-    properties_to_delete = {key: None for key in existing_properties.keys()}
-
-    # Step 3: Combine properties to delete with new properties
-    update_properties = {**properties_to_delete, **new_properties}
-
-    # Step 4: Update the file properties
-    file_metadata = {
-        'properties': update_properties
-    }
-    updated_file = drive_service.files().update(
-        fileId=file_id,
-        body=file_metadata,
-        fields='id, properties'
-    ).execute()
-    return updated_file
-
-# Define functions that leverage HubSpot API
 
 def get_all_companies():
     """
@@ -270,35 +258,83 @@ def get_all_contacts():
             break
     return all_contacts
 
-def create_engagement(note_body, company_ids, contact_ids):
+@st.cache_data(show_spinner=False)
+def fetch_companies():
     """
-    Creates an engagement of type 'NOTE' in HubSpot and associates it with specified companies and contacts.
+    Fetches and caches the list of companies from HubSpot.
     """
-    url = "https://api.hubapi.com/engagements/v1/engagements"
+    return get_all_companies()
+
+@st.cache_data(show_spinner=False)
+def fetch_contacts():
+    """
+    Fetches and caches the list of contacts from HubSpot.
+    """
+    return get_all_contacts()
+
+def create_note(note_body):
+    """
+    Creates a Note in HubSpot with the given body content.
+    """
+    url = "https://api.hubapi.com/crm/v3/objects/notes"
     data = {
-        "engagement": {
-            "active": True,
-            "type": "NOTE",
-        },
-        "associations": {
-            "companyIds": company_ids,
-            "contactIds": contact_ids,
-        },
-        "metadata": {
-            "body": note_body,
+        "properties": {
+            "hs_note_body": note_body  # 'hs_note_body' is the property for the note content
+            # "hs_timestamp": str(current_timestamp)  # Removed to align with original working code
         }
     }
     try:
         response = requests.post(url, headers=headers, json=data)
         response.raise_for_status()
-        return response.json()
+        note = response.json()
+        note_id = note.get('id')
+        return note_id
     except requests.exceptions.HTTPError as e:
-        st.error(f"An error occurred while creating the engagement: {e}")
+        st.error(f"An error occurred while creating the note: {e}")
         st.error(f"Response content: {e.response.text}")
         return None
     except Exception as e:
-        st.error(f"An unexpected error occurred while creating the engagement: {e}")
+        st.error(f"An unexpected error occurred while creating the note: {e}")
         return None
+
+def associate_note_with_objects(note_id, company_ids, contact_ids):
+    """
+    Associates the created Note with specified companies and contacts.
+    """
+    association_types = {
+        'companies': 'note_to_company',
+        'contacts': 'note_to_contact'
+    }
+
+    success = True
+
+    for company_id in company_ids:
+        url = f"https://api.hubapi.com/crm/v3/objects/notes/{note_id}/associations/companies/{company_id}/{association_types['companies']}"
+        try:
+            response = requests.put(url, headers=headers)
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            st.error(f"Error associating company ID {company_id} with note: {e}")
+            st.error(f"Response content: {e.response.text}")
+            success = False
+        except Exception as e:
+            st.error(f"Unexpected error while associating company ID {company_id}: {e}")
+            success = False
+
+    for contact_id in contact_ids:
+        url = f"https://api.hubapi.com/crm/v3/objects/notes/{note_id}/associations/contacts/{contact_id}/{association_types['contacts']}"
+        try:
+            response = requests.put(url, headers=headers)
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            st.error(f"Error associating contact ID {contact_id} with note: {e}")
+            st.error(f"Response content: {e.response.text}")
+            success = False
+        except Exception as e:
+            st.error(f"Unexpected error while associating contact ID {contact_id}: {e}")
+            success = False
+
+    return success
 
 def create_company(name):
     """
@@ -348,132 +384,245 @@ def create_contact(firstname, lastname, email=None):
         return None
 
 def get_contact_by_id(contact_id):
+    """
+    Retrieves a contact's full name by ID from HubSpot.
+    """
     url = f"https://api.hubapi.com/crm/v3/objects/contacts/{contact_id}"
     params = {'properties': 'firstname,lastname'}
-    response = requests.get(url, headers=headers, params=params)
-    response.raise_for_status()
-    data = response.json()
-    firstname = data.get('properties', {}).get('firstname', '')
-    lastname = data.get('properties', {}).get('lastname', '')
-    full_name = f"{firstname} {lastname}".strip()
-    return full_name
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        data = response.json()
+        firstname = data.get('properties', {}).get('firstname', '')
+        lastname = data.get('properties', {}).get('lastname', '')
+        full_name = f"{firstname} {lastname}".strip()
+        return full_name
+    except Exception as e:
+        st.error(f"Error fetching contact by ID: {e}")
+        return "Unknown Contact"
 
 def get_company_by_id(company_id):
+    """
+    Retrieves a company's name by ID from HubSpot.
+    """
     url = f"https://api.hubapi.com/crm/v3/objects/companies/{company_id}"
     params = {'properties': 'name'}
-    response = requests.get(url, headers=headers, params=params)
-    response.raise_for_status()
-    data = response.json()
-    name = data.get('properties', {}).get('name', '')
-    return name
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        data = response.json()
+        name = data.get('properties', {}).get('name', '')
+        return name
+    except Exception as e:
+        st.error(f"Error fetching company by ID: {e}")
+        return "Unknown Company"
 
-# Example of Retrieving Names from Stored IDs
-# # Retrieve file properties
-# file_properties = gd_get_file_properties(file_id)
+# ------------------------------
+# Initialize Gmail Functions
+# ------------------------------
 
-# # Get IDs from properties
-# contact_ids_str = file_properties.get('contacts_linked_ids', '')
-# company_ids_str = file_properties.get('companies_linked_ids', '')
+def get_gmail_service():
+    """
+    Initializes and returns the Gmail API service.
+    """
+    creds = Credentials(
+        None,
+        refresh_token=st.secrets["gmail"]["refresh_token"],
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=st.secrets["gmail"]["client_id"],
+        client_secret=st.secrets["gmail"]["client_secret"],
+        scopes=["https://www.googleapis.com/auth/gmail.send"]
+    )
+    try:
+        creds.refresh(Request())
+    except Exception as e:
+        st.error(f"Error refreshing Gmail credentials: {e}")
+        return None
+    service = build('gmail', 'v1', credentials=creds)
+    return service
 
-# # Convert strings back to lists
-# contact_ids = contact_ids_str.split(',') if contact_ids_str else []
-# company_ids = company_ids_str.split(',') if company_ids_str else []
+def create_mime_email(sender, to, subject, html_body):
+    """
+    Creates a MIME email with HTML content.
+    """
+    message = MIMEMultipart('alternative')
+    message['From'] = sender
+    message['To'] = to  # For multiple recipients, ensure 'to' is a comma-separated string
+    message['Subject'] = subject
+    part = MIMEText(html_body, 'html')
+    message.attach(part)
+    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    return {'raw': raw_message}
 
-# # Fetch contact names
-# contact_names = [get_contact_by_id(contact_id) for contact_id in contact_ids]
+def send_email(service, user_id, message):
+    """
+    Sends an email using the Gmail API.
+    """
+    try:
+        sent_message = service.users().messages().send(userId=user_id, body=message).execute()
+        return sent_message
+    except Exception as e:
+        st.error(f"An error occurred while sending email: {e}")
+        return None
 
-# # Fetch company names
-# company_names = [get_company_by_id(company_id) for company_id in company_ids]
+# ------------------------------
+# Define Report Generation Function
+# ------------------------------
 
-# # Now you have lists of names
-# print("Contacts Linked:", contact_names)
-# print("Companies Linked:", company_names)
+def send_email_report():
+    """
+    Compiles the unsent transcription logs and sends an HTML email report via Gmail API.
+    """
+    try:
+        # Fetch all data from the sheet
+        sheet = sheets_service.spreadsheets()
+        result = sheet.values().get(
+            spreadsheetId=GD_SPREADSHEET_ID_INGRESS_LOG,
+            range=f'{GD_SHEET_NAME_INGRESS_LOG}!A:J'  # Adjust range as needed
+        ).execute()
+        values = result.get('values', [])
 
-# --- Streamlit App ---
+        if not values:
+            st.warning("No data found in the spreadsheet.")
+            return
 
-# Set the title of the Streamlit app
-st.set_page_config(
-        page_title="NOS TranscriptTagging",
-        page_icon="Echelon_Icon_Sky Blue.png",
-)
-st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width = 125)
-st.title("NOS - Tag Transcripts")
-st.write("Custom Built for Kerri Faber")
+        # Identify the header row to find column indices
+        headers = values[0]
+        try:
+            sent_col_index = headers.index('Sent')
+            file_id_col = headers.index('File ID')  # Adjust based on actual header name
+            hubspot_profile_col = headers.index('HubSpot Profile')  # Adjust based on actual header name
+            transcription_col = headers.index('Transcription')  # Adjust based on actual header name
+            # Add other necessary column indices here
+        except ValueError as e:
+            st.error(f"Missing expected column in the spreadsheet: {e}")
+            return
 
-# Text input to accept a Google Drive or Google Docs link
-drive_link = st.text_input('Enter the Google Drive or Google Docs link to the document')
-st.markdown('[Raw Transcripts Google Drive Folder](https://drive.google.com/drive/u/0/folders/1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C)')
+        # Filter rows where 'Sent' is FALSE
+        unsent_rows = [row for row in values[1:] if len(row) > sent_col_index and row[sent_col_index].strip().lower() != 'yes']
 
-# Check if the link has been provided
-if drive_link:
-    # Extract the file ID from the provided link
-    file_id = gd_extract_file_id(drive_link)
-    if file_id:
-        file_properties = gd_get_file_properties(file_id)
-        transcription_timestamp = file_properties.get('transcription_timestamp')
-        duration_seconds = file_properties.get('duration_seconds')
-        audio_file_link = file_properties.get('audio_file_link')
-        
-        # Display success message if the link is valid
-        st.success("Google Drive link is valid.")
-        
-        # --- Fetch Companies and Contacts ---
-        # Check if companies data is already stored in session state
-        if 'companies_data' not in st.session_state:
-            # Show a spinner while fetching companies data
-            with st.spinner('Fetching companies...'):
-                st.session_state['companies_data'] = get_all_companies()
-                
-        # Check if contacts data is already stored in session state
-        if 'contacts_data' not in st.session_state:
-            # Show a spinner while fetching contacts data
-            with st.spinner('Fetching contacts...'):
-                st.session_state['contacts_data'] = get_all_contacts()
+        if not unsent_rows:
+            st.info("No unsent transcripts to report.")
+            return
 
-        # Retrieve companies and contacts data from session state
-        companies_data = st.session_state['companies_data']
-        contacts_data = st.session_state['contacts_data']
-        
-        # Create a dictionary for companies with name as the key and ID as the value
-        company_options = {
-            f"{company.get('properties', {}).get('name', 'Unnamed Company')} [{company.get('id')}]": company.get('id')
-            for company in companies_data
-        }
-        
-        # Create a dictionary for contacts with "firstname lastname [ID]" as the key and ID as the value
-        contact_options = {
-            f"{contact.get('properties', {}).get('firstname', '')} {contact.get('properties', {}).get('lastname', '')} [{contact.get('id')}]": contact.get('id')
-            for contact in contacts_data
-        }
+        # Generate HTML content
+        html_content = f"""
+        <html>
+            <body>
+                <h1>Unsent Transcripts Report</h1>
+                <p>Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        """
 
-        # Provide a disclaimer for duplicate names
-        st.write("**Note:** If there are duplicate names in the selection lists, please refer to the contact ID in brackets to verify the correct contact in HubSpot.")
+        for idx, row in enumerate(unsent_rows, start=1):
+            file_id = row[file_id_col] if len(row) > file_id_col else 'N/A'
+            hubspot_profile = row[hubspot_profile_col] if len(row) > hubspot_profile_col else 'N/A'
+            transcription = row[transcription_col] if len(row) > transcription_col else 'N/A'
+            # Extract other necessary fields as needed
+
+            # Create hyperlinks
+            file_link = f"https://drive.google.com/file/d/{file_id}/view" if file_id != 'N/A' else '#'
+            hubspot_link = f"https://app.hubspot.com/contacts/{hubspot_portal_id}/contact/{hubspot_profile}" if hubspot_profile != 'N/A' else '#'
+
+            # Format transcription with line breaks
+            transcription_formatted = transcription.replace('\n', '<br>') if transcription != 'N/A' else ''
+
+            html_content += f"""
+                <h2>Transcription {idx}</h2>
+                <p><strong>File ID:</strong> <a href="{file_link}">{file_id}</a></p>
+                <p><strong>HubSpot Profile:</strong> <a href="{hubspot_link}">{hubspot_profile}</a></p>
+                <h3>Transcription:</h3>
+                <p>{transcription_formatted}</p>
+                <hr>
+            """
+
+        html_content += """
+            </body>
+        </html>
+        """
+
+        # Create MIME email
+        sender = st.secrets["gmail"]["smtp_username"]  # Sender's email
+        recipient = st.secrets["gmail"]["recipient_email"]  # Recipient's email
+        subject = "Unsent Transcripts Report"
+        mime_message = create_mime_email(sender, recipient, subject, html_content)
+
+        # Send email
+        service = get_gmail_service()
+        if service is None:
+            st.error("Gmail service initialization failed.")
+            return
+
+        sent_message = send_email(service, 'me', mime_message)
+        if sent_message:
+            st.success("Email report sent successfully.")
+
+            # Update the 'Sent' column to TRUE
+            update_rows = []
+            for row_num, row in enumerate(unsent_rows, start=2):  # Sheet rows start at 1, header is row 1
+                update_rows.append({
+                    'range': f'{GD_SHEET_NAME_INGRESS_LOG}!J{row_num}',  # Assuming 'Sent' is Column J
+                    'values': [['Yes']]
+                })
+
+            if update_rows:
+                body = {
+                    'valueInputOption': 'RAW',
+                    'data': update_rows
+                }
+                try:
+                    response = sheet.values().batchUpdate(
+                        spreadsheetId=GD_SPREADSHEET_ID_INGRESS_LOG,
+                        body=body
+                    ).execute()
+                    st.success("Marked transcriptions as sent in the spreadsheet.")
+                except Exception as e:
+                    st.error(f"Failed to update 'Sent' flags: {e}")
+            else:
+                st.error("No rows to update.")
+        else:
+            st.error("Failed to send email report.")
+    except Exception as e:
+        st.error(f"An error occurred while generating the email report: {e}")
+
+# ------------------------------
+# Main Streamlit Application
+# ------------------------------
+
+def main():
+    # Use a form to encapsulate all input fields
+    with st.form(key='transcript_form'):
+        # Text input to accept a Google Drive or Google Docs link
+        drive_link = st.text_input('Enter the Google Drive or Google Docs link to the document')
+        st.markdown('[Raw Transcripts Google Drive Folder](https://drive.google.com/drive/u/0/folders/1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C)')
 
         # Text input for one-line title snippet
-        title = st.text_area('What should this file be named? Keep it short!')
+        transcript_title = st.text_area('Provide a title for this transcript. Keep it short!')
 
         # Multiselect for selecting contact who recorded the message
         who_recorded = st.multiselect(
             'Who recorded this? Only select one name.',
-            options=list(contact_options.keys())
+            options=[f"{contact.get('properties', {}).get('firstname', '')} {contact.get('properties', {}).get('lastname', '')} [{contact.get('id')}]"
+                     for contact in st.session_state['contacts_data']],
+            max_selections=1  # Ensure only one selection
         )
-        
-        # --- Notes ---
+
         # Text area for entering notes to be added to the engagement
         action_items = st.text_area('Enter your action items here. Be specific!')
 
         # Multiselect for selecting companies to tag in the engagement
         selected_companies = st.multiselect(
             'Tag Companies (already in HubSpot)',
-            options=list(company_options.keys())
+            options=[f"{company.get('properties', {}).get('name', 'Unnamed Company')} [{company.get('id')}]"
+                     for company in st.session_state['companies_data']]
         )
-        
+
         # Multiselect for selecting contacts to tag in the engagement
         selected_contacts = st.multiselect(
             'Tag Contacts (already in HubSpot)',
-            options=list(contact_options.keys())
+            options=[f"{contact.get('properties', {}).get('firstname', '')} {contact.get('properties', {}).get('lastname', '')} [{contact.get('id')}]"
+                     for contact in st.session_state['contacts_data']]
         )
-        
+
         # Input for creating new companies to tag in the engagement
         st.header("Add New Companies to HubSpot")
         st.write("**Please enter one company name per line.**")
@@ -483,12 +632,42 @@ if drive_link:
         st.header("Add New Contacts to HubSpot")
         st.write("**Please enter contacts in the format 'First Middle Last', one per line. If the contact has multiple first names or middle names, include them before the last name. The last word will be treated as the last name.**")
         new_contacts_input = st.text_area('Enter names of contacts to create in HubSpot')
-        
-        # --- Submit ---
-        # Button to submit the engagement to HubSpot
-        if st.button('Submit'):
 
-            # Initialize variables inside the submit block
+        # Submit button
+        submit_button = st.form_submit_button(label='Submit')
+
+    if st.session_state['show_form']:
+        if submit_button:
+            # Validate the drive_link
+            if not drive_link.strip():
+                st.error("Please enter a valid Google Drive or Google Docs link.")
+                return
+
+            # Extract the file ID from the provided link
+            gd_transcript_file_id = gd_extract_file_id(drive_link)
+            if not gd_transcript_file_id:
+                st.error("Failed to extract file ID from the provided link.")
+                return
+
+            # Fetch file properties
+            gd_transcript_file_properties = gd_get_file_properties(gd_transcript_file_id)
+            if not gd_transcript_file_properties:
+                st.error("Failed to fetch file properties. Please check the link and try again.")
+                return
+
+            # Fetch relevant properties
+            datetime_transcribed = gd_transcript_file_properties.get('transcription_timestamp')
+            datetime_uploaded = gd_transcript_file_properties.get('upload_timestamp')
+            seconds_transcribed = gd_transcript_file_properties.get('duration_seconds')
+            gd_input_audio_file_link = gd_transcript_file_properties.get('raw_audio_file_link')
+            gd_output_mp3_file_link = gd_transcript_file_properties.get('mp3_file_link')
+
+            # Display success message if the link is valid
+            st.success("Google Drive link is valid.")
+
+            # Initialize lists
+            contacts_created_formatted = []
+            companies_created_formatted = []
             new_company_ids = []
             new_company_names = []
             new_contact_ids = []
@@ -502,24 +681,27 @@ if drive_link:
                 new_company_names = [name.strip() for name in new_companies_input.strip().split('\n') if name.strip()]
                 for company_name in new_company_names:
                     # Check if the company already exists (to avoid duplicates)
-                    existing_companies = [key for key in company_options.keys() if key.startswith(company_name)]
+                    existing_companies = [key for key in [f"{c.get('properties', {}).get('name', 'Unnamed Company')} [{c.get('id')}]"
+                                                          for c in st.session_state['companies_data']] if company_name in key]
                     if not existing_companies:
                         st.info(f"Creating new company: {company_name}")
                         company_response = create_company(company_name)
                         if company_response and 'id' in company_response:
                             company_id = company_response['id']
                             new_company_ids.append(company_id)
-                            # Update the company_options dictionary
-                            company_options[f"{company_name} [{company_id}]"] = company_id
+                            # Append to companies_created_formatted
+                            companies_created_formatted.append(f"{company_name} [{company_id}]")
+                            # Update the cached companies data
+                            st.session_state['companies_data'].append(company_response)
                         else:
                             st.error(f"Failed to create company: {company_name}")
                     else:
                         st.warning(f"Company '{company_name}' already exists in HubSpot.")
-                        company_id = company_options[existing_companies[0]]
+                        company_id = existing_companies[0].split('[')[-1].rstrip(']')
                         new_company_ids.append(company_id)
-            else:
-                new_company_names = []
-                
+                        # Append to companies_created_formatted (even if it exists)
+                        companies_created_formatted.append(existing_companies[0])
+
             # Create new HubSpot contacts
             if new_contacts_input.strip():
                 new_contact_names = [name.strip() for name in new_contacts_input.strip().split('\n') if name.strip()]
@@ -535,33 +717,37 @@ if drive_link:
                         lastname = names[-1]
                         full_name = f"{firstname} {lastname}"
                         # Check for existing contacts with the same name
-                        existing_contacts = [key for key in contact_options.keys() if key.startswith(full_name)]
+                        existing_contacts = [key for key in [f"{c.get('properties', {}).get('firstname', '')} {c.get('properties', {}).get('lastname', '')} [{c.get('id')}]"
+                                                           for c in st.session_state['contacts_data']] if full_name in key]
                         if not existing_contacts:
                             st.info(f"Creating new contact: {full_name}")
                             contact_response = create_contact(firstname, lastname)
                             if contact_response and 'id' in contact_response:
                                 contact_id = contact_response['id']
                                 new_contact_ids.append(contact_id)
-                                # Update the contact_options dictionary
-                                contact_options[f"{full_name} [{contact_id}]"] = contact_id
+                                # Append to contacts_created_formatted
+                                contacts_created_formatted.append(f"{full_name} [{contact_id}]")
+                                # Update the cached contacts data
+                                st.session_state['contacts_data'].append(contact_response)
                             else:
                                 st.error(f"Failed to create contact: {full_name}")
                         else:
                             st.warning(f"Contact '{full_name}' already exists in HubSpot.")
-                            contact_id = contact_options[existing_contacts[0]]
+                            contact_id = existing_contacts[0].split('[')[-1].rstrip(']')
                             new_contact_ids.append(contact_id)
+                            # Append to contacts_created_formatted (even if it exists)
+                            contacts_created_formatted.append(existing_contacts[0])
                     else:
                         st.error(f"Invalid contact name format: '{contact_name}'. Each contact must include at least a first name and a last name, separated by spaces.")
-            else:
-                new_contact_names = []
 
             # Map selected company names to their corresponding IDs
-            company_ids = [company_options[name] for name in selected_companies]
+            company_ids = [c.split('[')[-1].rstrip(']') for c in selected_companies]
             # Map selected contact names to their corresponding IDs
-            contact_ids = [contact_options[name] for name in selected_contacts]
-            
+            contact_ids = [c.split('[')[-1].rstrip(']') for c in selected_contacts]
+
             # Map selected recorder names to their corresponding IDs
-            recorder_contact_ids = [contact_options[name] for name in who_recorded if name in contact_options]
+            recorder_contact_ids = [c.split('[')[-1].rstrip(']') for c in who_recorded if c in [f"{c.get('properties', {}).get('firstname', '')} {c.get('properties', {}).get('lastname', '')} [{c.get('id')}]"
+                                                                                                         for c in st.session_state['contacts_data']]]
             # Add the recorder's contact IDs to the list of contact IDs
             contact_ids.extend(recorder_contact_ids)
 
@@ -573,51 +759,161 @@ if drive_link:
             company_ids = list(set(company_ids))
             contact_ids = list(set(contact_ids))
 
-            # Update Google File Metadata (store only IDs)
+            # --- SHEETS LOG ---
+            # Get the current datetime for datetime_tagged in the desired format
+            datetime_tagged = datetime.now().strftime('%Y-%m-%d-%H%M%S%f')  # Example: 2024-11-06-152342255320
+
+            # Format who_recorded
+            who_recorded_formatted = who_recorded[0] if who_recorded else ''
+
+            # Prepare contacts_linked_formatted
+            contacts_linked_formatted = selected_contacts.copy()
+
+            # Ensure who_recorded is included in contacts_linked_formatted
+            if who_recorded_formatted and who_recorded_formatted not in contacts_linked_formatted:
+                contacts_linked_formatted.append(who_recorded_formatted)
+
+            # Remove duplicates
+            contacts_linked_formatted = list(set(contacts_linked_formatted))
+
+            # Prepare companies_linked_formatted
+            companies_linked_formatted = selected_companies.copy()
+            # Remove duplicates
+            companies_linked_formatted = list(set(companies_linked_formatted))
+
+            # Ensure that contacts_created_formatted and companies_created_formatted are defined
+            contacts_created_formatted = contacts_created_formatted if contacts_created_formatted else []
+            companies_created_formatted = companies_created_formatted if companies_created_formatted else []
+
+            # Prepare the row data with 'Sent' flag as 'No'
+            row = [
+                gd_transcript_file_id,                  # Column A: File ID
+                datetime_tagged,                        # Column B: Datetime Tagged
+                transcript_title,                       # Column C: Transcript Title
+                who_recorded_formatted,                 # Column D: Who Recorded
+                action_items,                           # Column E: Action Items
+                ', '.join(contacts_linked_formatted),   # Column F: Contacts Linked
+                ', '.join(companies_linked_formatted),  # Column G: Companies Linked
+                ', '.join(contacts_created_formatted),  # Column H: Contacts Created
+                ', '.join(companies_created_formatted), # Column I: Companies Created
+                'No'                                     # Column J: Sent Flag
+            ]
+
+            try:
+                # Append the row to the spreadsheet
+                request = sheets_service.spreadsheets().values().append(
+                    spreadsheetId=GD_SPREADSHEET_ID_INGRESS_LOG,
+                    range=f'{GD_SHEET_NAME_INGRESS_LOG}!A:J',  # Include column J
+                    valueInputOption='RAW',
+                    insertDataOption='INSERT_ROWS',
+                    body={'values': [row]}
+                )
+                response = request.execute()
+                st.success("Logged data to the spreadsheet.")
+            except Exception as e:
+                st.error(f"Error writing to spreadsheet: {str(e)}")
+
+            # --- METADATA WRITE ---
             new_properties = {
-                'transcription_timestamp': transcription_timestamp,
-                'duration_seconds': str(duration_seconds),
-                'audio_file_link': audio_file_link,
-                'who_recorded_ids': ','.join(recorder_contact_ids),
-                'file_title': title,
-                'action_items': action_items,
-                'contacts_linked_ids': ','.join(contact_ids),
-                'companies_linked_ids': ','.join(company_ids),
-                'new_contact_ids': ','.join(new_contact_ids),
-                'new_company_ids': ','.join(new_company_ids),
+                'datetime_uploaded': datetime_uploaded,
+                'datetime_transcribed': datetime_transcribed,
+                'datetime_tagged': datetime_tagged,
+                'seconds_transcribed': str(seconds_transcribed),
+                'gd_input_audio_file_link': gd_input_audio_file_link,
+                'gd_output_mp3_file_link': gd_output_mp3_file_link,
+                'who_recorded_ids': who_recorded_formatted,
+                'file_title': transcript_title,
             }
 
-            gd_update_file_properties(file_id, new_properties)
-            test_metadata = gd_get_file_properties(file_id)
+            gd_update_file_properties(gd_transcript_file_id, new_properties)
+            test_metadata = gd_get_file_properties(gd_transcript_file_id)
             st.success(f"File metadata updated.")
             st.write(f"Metadata: {test_metadata}")
-            
-            # Rename file and move to processed gd folder 
+
+            # Rename file and move to processed gd folder
             if who_recorded:
                 recorder_name = who_recorded[0].split(' [')[0].upper()
-                new_file_name = f"SIGNAL_{transcription_timestamp}_{recorder_name}_{title.upper()}_TRANSCRIPT__TAGGED.docx"
-                gd_rename_file(file_id, new_file_name)
+                new_file_name = f"SIGNAL_{datetime_uploaded}_{recorder_name}_{transcript_title.upper()}_TRANSCRIPT__TAGGED.docx"
+                gd_rename_file(gd_transcript_file_id, new_file_name)
 
-            gd_move_file_between_folders(file_id, TAGGED_TEXT_GD_FOLDER_ID)
+            gd_move_file_between_folders(gd_transcript_file_id, GD_FOLDER_ID_TAGGED_TEXT)
             st.success(f"File moved to processed folder.")
-            st.write(f"Folder ID: {TAGGED_TEXT_GD_FOLDER_ID}")
+            st.write(f"Folder ID: {GD_FOLDER_ID_TAGGED_TEXT}")
 
-            # Write the data to HubSpot
+            # --- HUBSPOT DATA WRITE ---
             note_body = f"This entity was tagged in a transcription. The Google Drive link to the notes can be found here: {drive_link} \n\n Action Items: {action_items}"
-            
-            # Show a spinner while creating the engagement in HubSpot
-            with st.spinner('Creating engagement...'):
-                engagement_response = create_engagement(note_body, company_ids, contact_ids)
-            
-            # Check if the engagement creation was successful
-            if engagement_response and 'engagement' in engagement_response:
-                st.success("Link and notes have been successfully uploaded to HubSpot.")
+
+            # Create the note
+            with st.spinner('Creating note in HubSpot...'):
+                note_id = create_note(note_body)
+
+            if note_id:
+                st.success("Note created successfully.")
+
+                # Associate the note with companies and contacts
+                with st.spinner('Associating note with companies and contacts...'):
+                    association_success = associate_note_with_objects(note_id, company_ids, contact_ids)
+
+                if association_success:
+                    st.success("Note associated with companies and contacts successfully.")
+                else:
+                    st.error("Failed to associate note with some companies or contacts.")
             else:
-                st.error("An error occurred while creating the engagement.")
-            
-    else:
-        # Display an error message if the Google Drive link is invalid
-        st.error("Invalid Google Drive or Google Docs link.")
+                st.error("Failed to create note.")
 
+            # --- Logging to Session State ---
+            transcription_entry = {
+                'gd_transcript_file_id': gd_transcript_file_id,
+                'datetime_tagged': datetime_tagged,
+                'transcript_title': transcript_title,
+                'who_recorded': who_recorded_formatted,
+                'action_items': action_items,
+                'contacts_linked': contacts_linked_formatted,
+                'companies_linked': companies_linked_formatted,
+                'contacts_created': contacts_created_formatted,
+                'companies_created': companies_created_formatted
+            }
+            st.session_state['transcriptions_log'].append(transcription_entry)
+            st.success("Transcription processed and logged successfully.")
 
-        
+            # Update session state to hide form
+            st.session_state['show_form'] = False
+
+    if not st.session_state['show_form']:
+        # Display "Tag Another Transcript" and "Generate Report" buttons
+        st.markdown("---")  # Add a separator
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("Tag Another Transcript"):
+                # Reset the UI to show the form again
+                st.session_state['show_form'] = True
+                st.success("Ready to tag another transcript.")
+
+        with col2:
+            if st.button("Generate Report"):
+                # Generate and send the report
+                send_email_report()
+                # Optionally, provide feedback or reset certain fields
+                st.success("Report generated and sent successfully.")
+
+    # ------------------------------
+    # Additional Notes
+    # ------------------------------
+    st.markdown("---")  # Add a separator at the bottom
+    st.write("© 2024 Echelon NOS. All rights reserved.")
+
+# ------------------------------
+# Initialize Cached Data on First Load
+# ------------------------------
+if 'companies_data' not in st.session_state:
+    with st.spinner('Fetching companies...'):
+        st.session_state['companies_data'] = fetch_companies()
+
+if 'contacts_data' not in st.session_state:
+    with st.spinner('Fetching contacts...'):
+        st.session_state['contacts_data'] = fetch_contacts()
+
+# Run the main function
+main()

@@ -13,7 +13,7 @@ Audio files are saved as .mp3 files in a new folder, Transcripts are saved as .d
 Custom properties set on a file in Google Drive using the API are not visible through the 
 Google Drive web interface. To access these properties, you need to use the Google Drive API.
 
-Deployed on Streamlit Cloud at https://echelon-nos-speech2text.streamlit.app/ 
+Deployed on Streamlit Cloud.
 
 """
 
@@ -28,6 +28,9 @@ import re
 import json
 import shutil
 from datetime import datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import base64
 
 # Open source imports
 import streamlit as st
@@ -40,6 +43,8 @@ from openai import OpenAI
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 
 # Define OpenAI scopes/credentials, initialize client
 os.environ['OPENAI_API_KEY'] = st.secrets["openai_api_key"]
@@ -60,22 +65,35 @@ drive_service = build('drive', 'v3', credentials=creds)
 docs_service = build('docs', 'v1', credentials=creds)
 sheets_service = build('sheets', 'v4', credentials=creds)
 
+def get_gmail_service():
+    creds = Credentials(
+        None,
+        refresh_token=st.secrets["gmail"]["refresh_token"],
+        token_uri="https://oauth2.googleapis.com/token",
+        client_id=st.secrets["gmail"]["client_id"],
+        client_secret=st.secrets["gmail"]["client_secret"],
+        scopes=["https://www.googleapis.com/auth/gmail.send"]
+    )
+    creds.refresh(Request())
+    service = build('gmail', 'v1', credentials=creds)
+    return service
+
 # Define Google Drive folder and spreadsheet IDs
 #PRODUCTION IDs
-GD_FOLDER_ID_UNPROCESSED_AUDIO = '10asUMD9jFbWlIXsTxqSezPdJkJU8czdm'
-GD_FOLDER_ID_TRANSCRIBED_AUDIO = '1KfdDf2LR7abUn-TpG9MrjYv3fhGXHmox'
-GD_FOLDER_ID_TRANSCRIBED_TEXT = '1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C'
-GD_FOLDER_ID_PROCESSED_RAW_AUDIO = '1TZzr1cxQGxohvFRR63kip7PxMCWExwTR'
-GD_SPREADSHEET_ID_INGRESS_LOG = '1iKC8PwIMA3OMMq6QaAxfvxiV3v8yVEow1OTBwoSKDrc'
-GD_SHEET_NAME_INGRESS_LOG = 'transcribe_audio'
+# GD_FOLDER_ID_UNPROCESSED_AUDIO = st.secrets["GD_FOLDER_ID_UNPROCESSED_AUDIO_PROD"]
+# GD_FOLDER_ID_TRANSCRIBED_AUDIO = st.secrets["GD_FOLDER_ID_TRANSCRIBED_AUDIO_PROD"]
+# GD_FOLDER_ID_TRANSCRIBED_TEXT = st.secrets["GD_FOLDER_ID_TRANSCRIBED_TEXT_PROD"]
+# GD_FOLDER_ID_PROCESSED_RAW_AUDIO = st.secrets["GD_FOLDER_ID_PROCESSED_RAW_AUDIO_PROD"]
+# GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["GD_SPREADSHEET_ID_INGRESS_LOG_PROD"]
+# GD_SHEET_NAME_INGRESS_LOG = 'transcribe_audio'
 
 #TEST IDs
-# GD_FOLDER_ID_UNPROCESSED_AUDIO = '1Dvfn6HEIdLXKInF_Q5gOFtRUg8PWoCYj'
-# GD_FOLDER_ID_TRANSCRIBED_AUDIO = '1IMCA6klxxq4UMks08xQy-KLp_g0DLM0V'
-# GD_FOLDER_ID_TRANSCRIBED_TEXT = '1joWp7fS4XeHYSF-T3FrxiHu4gMTBzcw4'
-# GD_FOLDER_ID_PROCESSED_RAW_AUDIO = '1jGL8WpV1gK1gFXmV4uYtOhVnNPkHpaXm'
-# GD_SPREADSHEET_ID_INGRESS_LOG = '1bs5zBmE9HanOlqf6LMAT-wN2YyhR-6eyMJfYCTR93pk'
-# GD_SHEET_NAME_INGRESS_LOG = 'transcribe_audio'
+GD_FOLDER_ID_UNPROCESSED_AUDIO = st.secrets["GD_FOLDER_ID_UNPROCESSED_AUDIO_TEST"]
+GD_FOLDER_ID_TRANSCRIBED_AUDIO = st.secrets["GD_FOLDER_ID_TRANSCRIBED_AUDIO_TEST"]
+GD_FOLDER_ID_TRANSCRIBED_TEXT = st.secrets["GD_FOLDER_ID_TRANSCRIBED_TEXT_TEST"]
+GD_FOLDER_ID_PROCESSED_RAW_AUDIO = st.secrets["GD_FOLDER_ID_PROCESSED_RAW_AUDIO_TEST"]
+GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["GD_SPREADSHEET_ID_INGRESS_LOG_TEST"]
+GD_SHEET_NAME_INGRESS_LOG = 'transcribe_audio'
 
 # Define functions that interact with local repo
 
@@ -413,7 +431,8 @@ st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width = 125
 st.title("NOS - Transcribe Audio Files")
 st.write("Custom Built for Kerri Faber")
 st.write("Once you have uploaded your files to the folder linked below, click the 'Transcribe Audio Files' button to transcribe. Full instructions are available on Notion.")
-st.markdown('[Upload Folder](https://drive.google.com/drive/folders/10asUMD9jFbWlIXsTxqSezPdJkJU8czdm?usp=drive_link)')
+upload_folder_link = gd_get_shareable_link(GD_FOLDER_ID_UNPROCESSED_AUDIO)
+st.markdown(f'[Upload Folder]({upload_folder_link})')
 st.markdown('[Notion](https://www.notion.so/Pulse-4799295f90594380b55f75e0d78dbb03?p=11b9668a26d680e39d57e8243d8f7178&pm=s)')
 
 # Add a reset button
@@ -573,11 +592,11 @@ if st.button('Transcribe Audio Files'):
 
             # Prepare the row data with cleaned transcription texts
             row = [
+                gd_transcript_file_id,
                 datetime_transcribed,
                 datetime_uploaded,
                 seconds_transcribed,
                 gd_transcript_file_link,
-                gd_transcript_file_id,
                 os.path.basename(gd_transcript_file_name),
                 gd_output_mp3_file_id,
                 gd_output_mp3_file_name,
