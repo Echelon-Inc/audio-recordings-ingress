@@ -419,10 +419,9 @@ st.markdown('[Notion](https://www.notion.so/Pulse-4799295f90594380b55f75e0d78dbb
 
 if st.button('Transcribe Audio Files'):
     st.write("Transcription started...")
-
+    processed_files_count = 0
     try:
         gd_audio_files = gd_list_audio_video_files(GD_FOLDER_ID_UNPROCESSED_AUDIO)
-        processed_files_count = 0
         gd_file_count = len(gd_audio_files)
         st.write(f"Found {gd_file_count} audio files to transcribe.")
 
