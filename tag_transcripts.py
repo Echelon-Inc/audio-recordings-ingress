@@ -22,6 +22,7 @@
 # Import Statements
 # ------------------------------
 import json
+import logging
 import re
 import io
 import os
@@ -41,7 +42,6 @@ from email.mime.multipart import MIMEMultipart
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 import base64
-import time  # Added for timestamp
 
 # ------------------------------
 # Configuration and Initialization
@@ -82,6 +82,10 @@ headers = {
     "Authorization": f"Bearer {HUBSPOT_API_TOKEN}",
     "Content-Type": "application/json"
 }
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ------------------------------
 # Define Google API Scopes and Initialize Clients
@@ -312,13 +316,9 @@ def create_note(note_body):
         str: The ID of the created note, or None if creation failed.
     """
     url = "https://api.hubapi.com/crm/v3/objects/notes"
-    current_timestamp = int(time.time() * 1000)  # Current time in milliseconds
-    # Alternatively, use ISO 8601 format:
-    # current_timestamp = datetime.utcnow().isoformat() + 'Z'
     data = {
         "properties": {
-            "hs_note_body": note_body,
-            "hs_timestamp": str(current_timestamp)  # Adjust format if needed
+            "hs_note_body": note_body  # 'hs_note_body' is the property for the note content
         }
     }
     try:
@@ -466,6 +466,105 @@ def get_company_by_id(company_id):
 # ------------------------------
 # Initialize Gmail Functions
 # ------------------------------
+
+def pull_report_data():
+    """
+    Fetches data from a specified Google Sheet, filters rows where the 'Sent Flag' is 'No',
+    structures the data into dictionaries, and returns the data as a list of dictionaries.
+
+    Returns:
+        list of dict: A list where each dictionary represents a row with key-value pairs corresponding
+                      to the column headers and their respective values.
+    """
+    # === Configuration ===
+    SPREADSHEET_ID = GD_SPREADSHEET_ID_INGRESS_LOG  
+    SHEET_NAME = GD_SHEET_NAME_INGRESS_LOG          
+    RANGE_NAME = f"{SHEET_NAME}!A1:J"                 # Columns A to J
+
+    # === Expected Column Headers ===
+    EXPECTED_HEADERS = [
+        'gd_transcript_file_id',                # Column A
+        'datetime_tagged',                      # Column B
+        'transcript_title',                     # Column C
+        'who_recorded_formatted',               # Column D
+        'action_items',                         # Column E
+        'contacts_linked_formatted',            # Column F
+        'companies_linked_formatted',           # Column G
+        'contacts_created_formatted',           # Column H
+        'companies_created_formatted',          # Column I
+        'sent_flag'                             # Column J
+    ]
+
+    try:
+        # === Retrieve Data from Google Sheets ===
+        logger.info("Fetching data from Google Sheets...")
+        result = sheets_service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=RANGE_NAME
+        ).execute()
+
+        values = result.get('values', [])
+
+        if not values:
+            logger.warning("No data found in the sheet.")
+            return []
+
+        # === Extract Headers and Data Rows ===
+        headers = values[0]
+        data_rows = values[1:]
+
+        logger.info(f"Number of data rows fetched: {len(data_rows)}")
+
+        # === Validate Headers ===
+        missing_headers = [header for header in EXPECTED_HEADERS if header not in headers]
+        if missing_headers:
+            error_message = f"The following expected columns are missing in the sheet: {missing_headers}"
+            logger.error(error_message)
+            return []
+
+        # Map header names to their indices for dynamic access
+        header_indices = {header: index for index, header in enumerate(headers)}
+
+        # === Process Rows ===
+        report_data = []
+
+        for row_number, row in enumerate(data_rows, start=2):  # Start at 2 considering header
+            # Safeguard against incomplete rows
+            if len(row) < len(EXPECTED_HEADERS):
+                logger.warning(f"Row {row_number} is incomplete. Expected {len(EXPECTED_HEADERS)} columns, got {len(row)}. Skipping.")
+                continue
+
+            # Retrieve the 'sent_flag' value and check if it's 'No'
+            sent_flag = row[header_indices['sent_flag']].strip().lower()
+            if sent_flag == 'no':
+                # Construct the data dictionary
+                row_data = {
+                    'gd_transcript_file_id': row[header_indices['gd_transcript_file_id']].strip(),
+                    'datetime_tagged': row[header_indices['datetime_tagged']].strip(),
+                    'transcript_title': row[header_indices['transcript_title']].strip(),
+                    'who_recorded_formatted': row[header_indices['who_recorded_formatted']].strip(),
+                    'action_items': row[header_indices['action_items']].strip(),
+                    'contacts_linked_formatted': row[header_indices['contacts_linked_formatted']].strip(),
+                    'companies_linked_formatted': row[header_indices['companies_linked_formatted']].strip(),
+                    'contacts_created_formatted': row[header_indices['contacts_created_formatted']].strip(),
+                    'companies_created_formatted': row[header_indices['companies_created_formatted']].strip(),
+                    'sent_flag': row[header_indices['sent_flag']].strip()
+                }
+
+                report_data.append(row_data)
+                logger.info(f"Row {row_number} added to report data.")
+
+        logger.info(f"Total rows with 'sent_flag' as 'No': {len(report_data)}")
+        return report_data
+
+    except Exception as e:
+        logger.exception(f"An error occurred while pulling report data: {e}")
+        return []
+
+# # === Example Usage ===
+# if __name__ == "__main__":
+#     report = pull_report_data()
+#     print(json.dumps(report, indent=4))                                 # Column J: Sent Flag
 
 def get_gmail_service():
     """
