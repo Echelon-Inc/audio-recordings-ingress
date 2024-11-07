@@ -28,9 +28,6 @@ import re
 import json
 import shutil
 from datetime import datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-import base64
 
 # Open source imports
 import streamlit as st
@@ -43,11 +40,9 @@ from openai import OpenAI
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
 
 # Define OpenAI scopes/credentials, initialize client
-os.environ['OPENAI_API_KEY'] = st.secrets["openai_api_key"]
+os.environ['OPENAI_API_KEY'] = st.secrets["openai"]["api_key"]
 client = OpenAI()
 
 # Define Google scopes/credentials, initialize client
@@ -65,34 +60,21 @@ drive_service = build('drive', 'v3', credentials=creds)
 docs_service = build('docs', 'v1', credentials=creds)
 sheets_service = build('sheets', 'v4', credentials=creds)
 
-def get_gmail_service():
-    creds = Credentials(
-        None,
-        refresh_token=st.secrets["gmail"]["refresh_token"],
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=st.secrets["gmail"]["client_id"],
-        client_secret=st.secrets["gmail"]["client_secret"],
-        scopes=["https://www.googleapis.com/auth/gmail.send"]
-    )
-    creds.refresh(Request())
-    service = build('gmail', 'v1', credentials=creds)
-    return service
-
 # Define Google Drive folder and spreadsheet IDs
 #PRODUCTION IDs
-# GD_FOLDER_ID_UNPROCESSED_AUDIO = st.secrets["GD_FOLDER_ID_UNPROCESSED_AUDIO_PROD"]
-# GD_FOLDER_ID_TRANSCRIBED_AUDIO = st.secrets["GD_FOLDER_ID_TRANSCRIBED_AUDIO_PROD"]
-# GD_FOLDER_ID_TRANSCRIBED_TEXT = st.secrets["GD_FOLDER_ID_TRANSCRIBED_TEXT_PROD"]
-# GD_FOLDER_ID_PROCESSED_RAW_AUDIO = st.secrets["GD_FOLDER_ID_PROCESSED_RAW_AUDIO_PROD"]
-# GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["GD_SPREADSHEET_ID_INGRESS_LOG_PROD"]
+# GD_FOLDER_ID_UNPROCESSED_AUDIO = st.secrets["gdrive"]["GD_FOLDER_ID_UNPROCESSED_AUDIO_PROD"]
+# GD_FOLDER_ID_TRANSCRIBED_AUDIO = st.secrets["gdrive"]["GD_FOLDER_ID_TRANSCRIBED_AUDIO_PROD"]
+# GD_FOLDER_ID_TRANSCRIBED_TEXT = st.secrets["gdrive"]["GD_FOLDER_ID_TRANSCRIBED_TEXT_PROD"]
+# GD_FOLDER_ID_PROCESSED_RAW_AUDIO = st.secrets["gdrive"]["GD_FOLDER_ID_PROCESSED_RAW_AUDIO_PROD"]
+# GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["gdrive"]["GD_SPREADSHEET_ID_INGRESS_LOG_PROD"]
 # GD_SHEET_NAME_INGRESS_LOG = 'transcribe_audio'
 
 #TEST IDs
-GD_FOLDER_ID_UNPROCESSED_AUDIO = st.secrets["GD_FOLDER_ID_UNPROCESSED_AUDIO_TEST"]
-GD_FOLDER_ID_TRANSCRIBED_AUDIO = st.secrets["GD_FOLDER_ID_TRANSCRIBED_AUDIO_TEST"]
-GD_FOLDER_ID_TRANSCRIBED_TEXT = st.secrets["GD_FOLDER_ID_TRANSCRIBED_TEXT_TEST"]
-GD_FOLDER_ID_PROCESSED_RAW_AUDIO = st.secrets["GD_FOLDER_ID_PROCESSED_RAW_AUDIO_TEST"]
-GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["GD_SPREADSHEET_ID_INGRESS_LOG_TEST"]
+GD_FOLDER_ID_UNPROCESSED_AUDIO = st.secrets["gdrive"]["GD_FOLDER_ID_UNPROCESSED_AUDIO_TEST"]
+GD_FOLDER_ID_TRANSCRIBED_AUDIO = st.secrets["gdrive"]["GD_FOLDER_ID_TRANSCRIBED_AUDIO_TEST"]
+GD_FOLDER_ID_TRANSCRIBED_TEXT = st.secrets["gdrive"]["GD_FOLDER_ID_TRANSCRIBED_TEXT_TEST"]
+GD_FOLDER_ID_PROCESSED_RAW_AUDIO = st.secrets["gdrive"]["GD_FOLDER_ID_PROCESSED_RAW_AUDIO_TEST"]
+GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["gdrive"]["GD_SPREADSHEET_ID_INGRESS_LOG_TEST"]
 GD_SHEET_NAME_INGRESS_LOG = 'transcribe_audio'
 
 # Define functions that interact with local repo
@@ -435,10 +417,6 @@ upload_folder_link = gd_get_shareable_link(GD_FOLDER_ID_UNPROCESSED_AUDIO)
 st.markdown(f'[Upload Folder]({upload_folder_link})')
 st.markdown('[Notion](https://www.notion.so/Pulse-4799295f90594380b55f75e0d78dbb03?p=11b9668a26d680e39d57e8243d8f7178&pm=s)')
 
-# Add a reset button
-if st.button('Reset App'):
-    st.query_params.clear()  # Simulate a reset by clearing query parameters
-
 if st.button('Transcribe Audio Files'):
     st.write("Transcription started...")
 
@@ -586,10 +564,6 @@ if st.button('Transcribe Audio Files'):
 
             # Write to ingress log
 
-            # Clean the transcription texts to remove line breaks and extra whitespace
-            raw_transcription_single_line = re.sub(r'\s+', ' ', raw_transcription).strip()
-            processed_transcription_single_line = re.sub(r'\s+', ' ', processed_transcription).strip()
-
             # Prepare the row data with cleaned transcription texts
             row = [
                 gd_transcript_file_id,
@@ -605,8 +579,9 @@ if st.button('Transcribe Audio Files'):
                 gd_input_audio_file_name,
                 gd_input_audio_file_link,
                 gd_input_audio_file_mimeType,
-                raw_transcription_single_line,
-                processed_transcription_single_line
+                raw_transcription,
+                processed_transcription,
+                '0'
             ]
 
             # Append the row to the spreadsheet
@@ -628,3 +603,9 @@ if st.button('Transcribe Audio Files'):
 
     st.success(f"{processed_files_count} transcription(s) complete! Find files in the folder linked below.")
     st.markdown('[Transcriptions Folder](https://drive.google.com/drive/u/0/folders/1HVT-YrVNnMy4ag0h6hqawl2PVef-Fc0C)')
+
+# ------------------------------
+# Additional Notes
+# ------------------------------
+st.markdown("---")  # Add a separator at the bottom
+st.write("© 2024 Echelon NOS. All rights reserved.")
