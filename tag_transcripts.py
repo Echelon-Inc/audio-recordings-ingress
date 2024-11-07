@@ -96,16 +96,16 @@ sheets_service = build('sheets', 'v4', credentials=creds)
 # Define Google Drive Folder and Spreadsheet IDs
 # ------------------------------
 # PRODUCTION
-# GD_FOLDER_ID_TRANSCRIBED_TEXT = st.secrets["gdrive"]["GD_FOLDER_ID_TRANSCRIBED_TEXT_PROD"]
-# GD_FOLDER_ID_TAGGED_TEXT = st.secrets["gdrive"]["GD_FOLDER_ID_TAGGED_TEXT_PROD"]
-# GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["gdrive"]["GD_SPREADSHEET_ID_INGRESS_LOG_PROD"]
-# GD_SHEET_NAME_INGRESS_LOG = 'tag_transcripts'
+GD_FOLDER_ID_TRANSCRIBED_TEXT = st.secrets["gdrive"]["GD_FOLDER_ID_TRANSCRIBED_TEXT_PROD"]
+GD_FOLDER_ID_TAGGED_TEXT = st.secrets["gdrive"]["GD_FOLDER_ID_TAGGED_TEXT_PROD"]
+GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["gdrive"]["GD_SPREADSHEET_ID_INGRESS_LOG_PROD"]
+GD_SHEET_NAME_INGRESS_LOG = 'tag_transcripts'
 
 # TESTING
-GD_FOLDER_ID_TRANSCRIBED_TEXT = st.secrets["gdrive"]["GD_FOLDER_ID_TRANSCRIBED_TEXT_TEST"]
-GD_FOLDER_ID_TAGGED_TEXT = st.secrets["gdrive"]["GD_FOLDER_ID_TAGGED_TEXT_TEST"]
-GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["gdrive"]["GD_SPREADSHEET_ID_INGRESS_LOG_TEST"]
-GD_SHEET_NAME_INGRESS_LOG = 'tag_transcripts'
+# GD_FOLDER_ID_TRANSCRIBED_TEXT = st.secrets["gdrive"]["GD_FOLDER_ID_TRANSCRIBED_TEXT_TEST"]
+# GD_FOLDER_ID_TAGGED_TEXT = st.secrets["gdrive"]["GD_FOLDER_ID_TAGGED_TEXT_TEST"]
+# GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["gdrive"]["GD_SPREADSHEET_ID_INGRESS_LOG_TEST"]
+# GD_SHEET_NAME_INGRESS_LOG = 'tag_transcripts'
 
 # ------------------------------
 # Define Google Drive and HubSpot Functions
@@ -486,10 +486,6 @@ def gd_get_shareable_link(file_id):
 drive_link = st.text_input('Enter the Google Drive or Google Docs link to the document')
 raw_transcripts_link = gd_get_shareable_link(GD_FOLDER_ID_TRANSCRIBED_TEXT)
 st.markdown(f'[Raw Transcripts Google Drive Folder]({raw_transcripts_link})')
-
-# Add a reset button
-if st.button('Reset App'):
-    st.query_params.clear()  # Simulate a reset by clearing query parameters
 
 # Check if the link has been provided
 if drive_link:
