@@ -753,7 +753,7 @@ if drive_link:
             st.write(f"Folder ID: {GD_FOLDER_ID_TAGGED_TEXT}")
 
             # --- HUBSPOT DATA WRITE ---
-            note_body = f"This entity was tagged in a transcription. The Google Drive link to the notes can be found here: {drive_link} \n\n Action Items: {action_items_single_line}"
+            note_body = f"This entity was tagged in a transcript ({transcript_title}).  Link: {drive_link}, Action Items: {action_items}"
 
             # Calculate hs_timestamp (convert datetime_tagged to milliseconds since epoch)
             datetime_tagged_obj = datetime.strptime(datetime_tagged, '%Y-%m-%d-%H%M%S%f')
