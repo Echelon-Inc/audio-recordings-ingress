@@ -410,7 +410,7 @@ st.set_page_config(
         page_icon="Echelon_Icon_Sky Blue.png",
 )
 st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width = 125)
-st.title("NOS - Transcribe Audio Files")
+st.title("NOS | Transcribe Audio")
 st.write("Custom Built for Kerri Faber")
 st.write("Once you have uploaded your files to the folder linked below, click the 'Transcribe Audio Files' button to transcribe. Full instructions are available on Notion.")
 upload_folder_link = gd_get_shareable_link(GD_FOLDER_ID_UNPROCESSED_AUDIO)

@@ -49,7 +49,7 @@ import base64
 
 # Set Streamlit page configuration
 st.set_page_config(
-    page_title="NOS Transcript Tagging",
+    page_title="NOS | Tag Transcripts",
     page_icon="Echelon_Icon_Sky Blue.png",
     layout="wide"
 )
@@ -753,12 +753,12 @@ if drive_link:
             st.write(f"Folder ID: {GD_FOLDER_ID_TAGGED_TEXT}")
 
             # --- HUBSPOT DATA WRITE ---
-            note_body = f"This entity was tagged in a transcript ({transcript_title}).  Link: {drive_link}, Action Items: {action_items}"
+            action_items_html = action_items.replace('\n','<br>')
+            note_body = f"This entity was tagged in a transcript: <a href=\"{drive_link}\">{transcript_title}</a><br>Recorded by: {who_recorded_formatted}<br>Action Items: <br>{action_items_html}"
 
             # Calculate hs_timestamp (convert datetime_tagged to milliseconds since epoch)
             datetime_tagged_obj = datetime.strptime(datetime_tagged, '%Y-%m-%d-%H%M%S%f')
             hs_timestamp = int(datetime_tagged_obj.timestamp() * 1000)
-
             # Create the note
             with st.spinner('Creating note in HubSpot...'):
                 note_id = create_note(note_body, hs_timestamp)

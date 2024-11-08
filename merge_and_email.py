@@ -28,7 +28,7 @@ import markdown
 
 # Set Streamlit page configuration
 st.set_page_config(
-    page_title="NOS Transcript Tagging",
+    page_title="NOS | Generate Report",
     page_icon="Echelon_Icon_Sky Blue.png",
     layout="wide"
 )
