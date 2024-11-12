@@ -156,7 +156,7 @@ def download_sheet_as_df(spreadsheet_id, sheet_name):
     Returns:
         pd.DataFrame: The sheet data as a DataFrame.
     """
-    range_name = f"{sheet_name}!A:Z"  # Adjust columns as needed
+    range_name = f"{sheet_name}!A:AY"  # Adjust columns as needed
     result = sheets_service.spreadsheets().values().get(
         spreadsheetId=spreadsheet_id, range=range_name
     ).execute()

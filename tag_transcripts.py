@@ -708,7 +708,11 @@ if drive_link:
                 ', '.join(companies_linked_formatted),  # Column G: Companies Linked
                 ', '.join(contacts_created_formatted),  # Column H: Contacts Created
                 ', '.join(companies_created_formatted), # Column I: Companies Created
-                '0'                                     # Column J: Merge Status Tag
+                '0',                                    # Column J: Merge Status Tag
+                len(contacts_linked_formatted),         # Column K: # Contacts Linked
+                len(companies_linked_formatted),        # Column L: # Companies Linked
+                len(contacts_created_formatted),        # Column M: # Contacts Created
+                len(companies_created_formatted)        # Column N: # Companies Created
             ]
 
             try:
