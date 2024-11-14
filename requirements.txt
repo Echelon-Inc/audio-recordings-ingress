@@ -18,3 +18,4 @@ pandas
 jupyter
 moviepy
 markdown
+pytz
