@@ -12,6 +12,22 @@ import urllib.parse
 import difflib  # For smart suggestions
 
 # ------------------------------
+# Configuration and Initialization
+# ------------------------------
+
+# Set Streamlit page configuration
+st.set_page_config(
+    page_title="NOS | Happy Minute",
+    page_icon="Echelon_Icon_Sky Blue.png",
+    layout="wide"
+)
+
+# Display Echelon logo
+st.image("Echelon_Icon_Sky Blue.png", caption="The Home for Aliens", width=125)
+st.title("NOS - Happy Minute")
+st.write("Custom Built for Kerri Faber")
+
+# ------------------------------
 # Define Google API Scopes and Initialize Clients
 # ------------------------------
 SCOPES = [
@@ -37,11 +53,11 @@ headers = {
 # Define Google Drive Folder and Spreadsheet IDs
 # ------------------------------
 # PRODUCTION
-# GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["gdrive"]["GD_SPREADSHEET_ID_INGRESS_LOG_PROD"]
-# GD_SHEET_NAME_INGRESS_LOG = 'happy_minute'
+GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["gdrive"]["GD_SPREADSHEET_ID_INGRESS_LOG_PROD"]
 
 # TESTING
-GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["gdrive"]["GD_SPREADSHEET_ID_INGRESS_LOG_TEST"]
+# GD_SPREADSHEET_ID_INGRESS_LOG = st.secrets["gdrive"]["GD_SPREADSHEET_ID_INGRESS_LOG_TEST"]
+
 GD_SHEET_NAME_INGRESS_LOG = 'happy_minute'
 GD_SHEET_NAME_SUMMARY_LOG = 'happy_minute_summary'
 
@@ -321,10 +337,9 @@ def run_script():
 # ------------------------------
 
 def main():
-    st.title("Happy Minute Participant Log")
     
     # 1. Let the user provide a description of the event
-    event_description = st.text_input("Describe last Friday's Happy Minute! Who hosted? Who was toasted? Why?")
+    event_description = st.text_input("Describe our most recent Happy Minute! Who hosted? Who was toasted? Why?")
     
     # 2. Let the user write a paragraph on the perceived quality of the event
     event_retrospective = st.text_area("Provide commentary on the event. What worked? What didn't? Was it a good HM?")
@@ -559,3 +574,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# ------------------------------
+# Additional Notes
+# ------------------------------
+st.markdown("---")  # Add a separator at the bottom
+st.write("© 2024 Echelon NOS. All rights reserved.")
