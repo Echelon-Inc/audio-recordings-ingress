@@ -16,6 +16,6 @@ typing
 numpy
 pandas
 jupyter
-moviepy
+moviepy==1.0.3
 markdown
 pytz
