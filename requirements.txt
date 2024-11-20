@@ -17,5 +17,6 @@ numpy
 pandas
 jupyter
 moviepy
+moviepy.editor
 markdown
 pytz
